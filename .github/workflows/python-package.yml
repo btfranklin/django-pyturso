@@ -1,0 +1,69 @@
+name: Python package
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Runtime dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Enforce vulnerability and license policy
+        uses: actions/dependency-review-action@v5
+        with:
+          config-file: ./.github/dependency-review-config.yml
+
+  quality:
+    name: Quality (${{ matrix.os }}, ${{ matrix.resolution }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04, windows-2025]
+        resolution: [locked, minimum]
+        include:
+          - resolution: locked
+            lockfile: pdm.lock
+          - resolution: minimum
+            lockfile: pdm.min.lock
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: pdm-project/setup-pdm@v4
+      - name: Install the selected resolution
+        run: pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
+      - name: Record environment
+        run: pdm list --freeze
+      - name: Run the canonical local gate
+        run: pdm run check
+      - name: Capture the driver/platform contract
+        run: >-
+          pdm run python scripts/probes/driver_contract.py
+          --include-disposable-mutations
+          --output driver-platform.json
+      - name: Upload driver/platform evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: driver-platform-${{ matrix.os }}-${{ matrix.resolution }}
+          path: driver-platform.json
+
+  review-metadata:
+    name: Review metadata
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Validate classification and evidence metadata
+        run: python scripts/validate_review_metadata.py

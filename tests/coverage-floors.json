@@ -1,0 +1,14 @@
+{
+  "critical_module_branch_percent": {
+    "src/django_pyturso/base.py": 100.0,
+    "src/django_pyturso/operations.py": 100.0,
+    "src/django_pyturso/schema.py": 100.0
+  },
+  "measurement": {
+    "date": "2026-07-13",
+    "profile": "offline full local profile excluding upstream and performance markers",
+    "release_target_repository_percent": 95.0
+  },
+  "repository_branch_percent": 100.0,
+  "schema_version": 1
+}

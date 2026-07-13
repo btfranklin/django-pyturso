@@ -1,0 +1,39 @@
+{
+  "algorithm": "sha256(canonical-json({schema,data}))",
+  "normalization": "columns and constraints sorted; temporal values ISO-8601; decimals strings; durations seconds; JSON keys sorted",
+  "stages": {
+    "initial": {
+      "schema_data_sha256": "5d568b767d4d9f1776585d038ea7062705bb2494e80b424b6cdfe7990fb9fe8c",
+      "tables": [
+        "migration_corpus_article",
+        "migration_corpus_author"
+      ],
+      "row_counts": {
+        "articles": 1,
+        "authors": 1
+      }
+    },
+    "forward": {
+      "schema_data_sha256": "87be516ae4da3215840fb64e9e755bae2a9237c7f9cc3ab4e5e58ce6cbaef3d7",
+      "tables": [
+        "migration_corpus_article",
+        "migration_corpus_author"
+      ],
+      "row_counts": {
+        "articles": 1,
+        "authors": 1
+      }
+    },
+    "backward": {
+      "schema_data_sha256": "5d568b767d4d9f1776585d038ea7062705bb2494e80b424b6cdfe7990fb9fe8c",
+      "tables": [
+        "migration_corpus_article",
+        "migration_corpus_author"
+      ],
+      "row_counts": {
+        "articles": 1,
+        "authors": 1
+      }
+    }
+  }
+}

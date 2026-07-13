@@ -1,0 +1,97 @@
+{
+  "cases": {
+    "connection_lifecycle": {
+      "close_count": 2,
+      "file_exists": true,
+      "open_count": 2,
+      "persistent_queries_per_open": 2,
+      "values": [0, 1, 2, 3],
+      "versions": [[3, 50, 4], [3, 50, 4], [3, 50, 4], [3, 50, 4]]
+    },
+    "cursor_insert_1000": {
+      "count": 1000,
+      "first": [1, "payload-0001"],
+      "id_sum": 500500,
+      "last": [1000, "payload-1000"],
+      "payload_sha256": "aa8df531e7693ae8ed6219b1d5c28181d6c9f7e58c74adc663ce89810c6a231b"
+    },
+    "cursor_update_1000": {
+      "count": 1000,
+      "first": [1, "updated-0001"],
+      "id_sum": 500500,
+      "last": [1000, "updated-1000"],
+      "payload_sha256": "2ef1bac93aeb09412feabadeb734dd3a08f2abdcf4aa99c84aebd25b1844b2f9"
+    },
+    "introspection_40_tables": {
+      "columns_sha256": "fb83f47d3d8cee277c24941b94ceee2a0194afcfa314a0afc6ed4baa22da81cc",
+      "count": 40,
+      "first": "performance_introspection_01",
+      "last": "performance_introspection_40",
+      "tables_sha256": "d34e250ab3fb78c4afc338b273a798ea6610c71744069bedb80ffa9f07f9fe08"
+    },
+    "migration_initial": {
+      "columns": ["id", "payload"],
+      "count": 0,
+      "payload_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "migration_populated_remake": {
+      "columns": ["id", "payload", "status"],
+      "count": 500,
+      "payload_sha256": "664ba30237faa6ede3e65e37605501b661e6f03ec668f060dd5e9cc2a3d01e83",
+      "ready_count": 500
+    },
+    "orm_active_page_500": {
+      "count": 500,
+      "first": [2, "entry-00002"],
+      "id_sum": 250500,
+      "last": [1000, "entry-01000"],
+      "payload_sha256": "412ecb0ac7b2f3d0960c9748943b99cc59172d974f8475c2bfa53c78e69b7fb7"
+    },
+    "orm_query_families": {
+      "aggregate": {"row_count": 2000, "score_sum": 99000},
+      "indexed_count": 20,
+      "indexed_sha256": "b4bd25017474e3d1d881eb21e88143bbe132ecfd6400c192276cc831228763be",
+      "json_count": 200,
+      "json_sha256": "b227b239c223aca345bc277c4bd07fb17864f771b44d101fce7778a0743bc717",
+      "ordered_first": [99, 99],
+      "ordered_last": [997, 97],
+      "ordered_sha256": "c0044652f4a6c34a66eea3d55f87d0f6e18ad046ddc6d4aadc9e028f31f0cf69",
+      "related_first": [1, "author-002"],
+      "related_last": [100, "author-001"],
+      "related_sha256": "b6a4838c088de1c60ac4473b7be0bf040a289c3557aba196daf45b77b516224a",
+      "unindexed_count": 118,
+      "unindexed_sha256": "224c031c7ae8bd78d011d6bb816d8ff70689078c27f4722f170271fd7fd47137"
+    },
+    "orm_single_row_crud": {
+      "created_id": 1,
+      "deleted": 1,
+      "read_payload": "created",
+      "remaining": 0,
+      "updated": 1,
+      "updated_payload": "updated"
+    },
+    "test_database_lifecycle": {
+      "created_name": "test_performance_lifecycle.db",
+      "database_destroyed": true,
+      "phases": ["create", "migrate", "flush", "destroy"],
+      "rows_after_flush": 0,
+      "rows_before_flush": 1,
+      "wal_destroyed": true
+    },
+    "transaction_atomic_savepoint": {
+      "count": 2,
+      "rows": [[1, "outer"], [3, "committed"]]
+    }
+  },
+  "dataset": {
+    "active_entries": 2500,
+    "active_page_size": 500,
+    "authors": 50,
+    "entries": 5000,
+    "insert_batch_size": 1000,
+    "introspection_tables": 40,
+    "migration_rows": 500,
+    "records": 2000
+  },
+  "schema_version": 2
+}

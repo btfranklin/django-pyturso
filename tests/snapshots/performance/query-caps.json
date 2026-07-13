@@ -1,0 +1,13 @@
+{
+  "connection_lifecycle": {"max_operations": 8},
+  "cursor_insert_1000": {"max_queries": 1},
+  "cursor_update_1000": {"max_queries": 1},
+  "introspection_40_tables": {"max_queries": 81},
+  "migration_initial": {"max_queries": 57},
+  "migration_populated_remake": {"max_queries": 60},
+  "orm_active_page_500": {"max_queries": 1},
+  "orm_query_families": {"max_queries": 6},
+  "orm_single_row_crud": {"max_queries": 9},
+  "test_database_lifecycle": {"max_operations": 7},
+  "transaction_atomic_savepoint": {"max_queries": 9}
+}

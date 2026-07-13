@@ -1,0 +1,191 @@
+schema_version = 1
+
+[[requirement]]
+id = "CONNECTION-LOCAL-001"
+behavior = "Open local file and exactly :memory: databases through top-level turso.connect()."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/core/test_connection.py"]
+docs = ["docs/design/backend-contract.md#runtime-and-dependency-boundary"]
+phase = 0
+
+[[requirement]]
+id = "BINARYFIELD-DRIVER-001"
+behavior = "The audited driver lacks PEP 249 Binary(), so writes of non-NULL BinaryField values are intentionally unsupported in v1 without a backend workaround."
+classification = "unsupported"
+modes = ["memory", "file"]
+tests = ["tests/driver_contract/test_driver_probe.py::test_default_cli_emits_versioned_read_only_json"]
+docs = ["docs/design/backend-contract.md#intentional-binaryfield-exclusion"]
+phase = 2
+
+[[requirement]]
+id = "TRANSACTION-STATE-001"
+behavior = "Django and Turso transaction state remain synchronized across manual and atomic paths."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/core/transactions/test_state_machine.py"]
+docs = ["docs/transactions.md"]
+phase = 1
+
+[[requirement]]
+id = "DJANGO-CAPABILITY-DECLARATIONS-001"
+behavior = "Every public Django 6.0.7 database capability has an explicit static backend disposition and drift check."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/unit/test_features.py"]
+docs = ["docs/design/evidence/django-feature-disposition.md"]
+phase = 2
+
+[[requirement]]
+id = "ORM-SCALARS-001"
+behavior = "Supported scalar values and native temporal/JSON expressions round trip through Django ORM."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/core/test_orm.py"]
+docs = ["docs/compatibility.md"]
+phase = 2
+
+[[requirement]]
+id = "INTROSPECTION-001"
+behavior = "Django introspects Turso tables, views, columns, relations, indexes, and constraints."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/core/test_introspection.py"]
+docs = ["docs/design/django-provenance.md"]
+phase = 3
+
+[[requirement]]
+id = "CONSTRAINTS-001"
+behavior = "Manual foreign-key checking preserves composite MATCH SIMPLE and schema restoration semantics."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/core/constraints/test_foreign_keys.py", "tests/core/test_schema.py"]
+docs = ["docs/design/evidence/constraint-lifecycle.md"]
+phase = 3
+
+[[requirement]]
+id = "SCHEMA-MIGRATIONS-001"
+behavior = "Schema edits and forward/reverse migrations preserve data and restore connection state."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/core/test_schema.py", "tests/project/migrations/0001_initial.py"]
+docs = ["docs/transactions.md"]
+phase = 3
+
+[[requirement]]
+id = "TEST-RUNNER-001"
+behavior = "Single-process memory/file test runs, keepdb, file mirrors, and file live servers work; unsafe modes fail early."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/integration/test_test_runner.py", "tests/project/tests.py"]
+docs = ["docs/test-runner.md"]
+phase = 4
+
+[[requirement]]
+id = "DJANGO-USER-PATHS-001"
+behavior = "Auth, sessions, forms, and admin paths operate through embedded Turso."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/integration/test_user_paths.py"]
+docs = ["docs/design/backend-contract.md"]
+phase = 4
+
+[[requirement]]
+id = "CONFIG-REJECT-001"
+behavior = "Reject credentials, URLs, driver-only settings, and unknown options."
+classification = "intentional_difference"
+modes = ["memory", "file"]
+tests = ["tests/core/test_connection.py"]
+docs = ["docs/design/backend-contract.md#explicit-exclusions"]
+phase = 0
+
+[[requirement]]
+id = "ARCH-NATIVE-001"
+behavior = "The backend imports neither sqlite3 nor Django's SQLite backend at runtime."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/architecture/test_boundaries.py"]
+docs = ["docs/architecture.md#boundaries"]
+phase = 0
+
+[[requirement]]
+id = "DRIVER-CONTRACT-001"
+behavior = "The supported pyturso driver surface and connected Turso engine are probed reproducibly."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/driver_contract/test_driver_probe.py"]
+docs = ["docs/design/evidence/driver-platform-matrix.md"]
+phase = 0
+
+[[requirement]]
+id = "TEMPORAL-SQL-001"
+behavior = "Supported UTC temporal extraction, truncation, casting, parameter ordering, and conservative rejections are exact."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/core/test_operations.py"]
+docs = ["docs/design/evidence/temporal-sql.md"]
+phase = 2
+
+[[requirement]]
+id = "DIFFERENTIAL-PARITY-001"
+behavior = "Manifest-backed ORM, transaction, schema, and introspection scenarios match SQLite except documented differences."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["tests/differential/test_scenarios.py"]
+docs = ["docs/testing.md"]
+phase = 5
+
+[[requirement]]
+id = "RESILIENCE-001"
+behavior = "Property, fault-injection, stress, crash-recovery, and resource checks preserve data and connection state."
+classification = "parity"
+modes = ["memory", "file"]
+tests = [
+    "tests/property/test_cursor_and_values.py",
+    "tests/property/test_transaction_sequences.py",
+    "tests/fault_injection/test_connection_initialization.py",
+    "tests/stress/test_file_recovery_and_resources.py",
+]
+docs = ["docs/testing-hardening.md"]
+phase = 5
+
+[[requirement]]
+id = "UPSTREAM-DJANGO-001"
+behavior = "A pinned manifest of Django 6.0.7 backend tests passes with intentional implementation differences explicit."
+classification = "parity"
+modes = ["file"]
+tests = ["tests/upstream/test_upstream_manifest.py"]
+docs = ["docs/testing-upstream.md"]
+phase = 5
+
+[[requirement]]
+id = "PERFORMANCE-REGRESSION-001"
+behavior = "Deterministic performance workloads prove correctness and query caps before timing."
+classification = "parity"
+modes = ["file"]
+tests = ["tests/performance/test_workloads.py", "tests/performance/test_report.py"]
+docs = ["docs/performance.md"]
+phase = 5
+
+[[requirement]]
+id = "PACKAGE-INSTALL-001"
+behavior = "The exact wheel and sdist pass archive inspection and isolated PDM-installed Django smoke projects."
+classification = "parity"
+modes = ["memory", "file"]
+tests = ["scripts/verify_packages.py"]
+docs = ["docs/testing.md"]
+phase = 6
+
+[[requirement]]
+id = "SECURITY-SUPPLY-001"
+behavior = "Runtime imports, SQL and path inputs, dependency licenses and advisories, exceptions, workflows, and release SBOMs are mechanically governed."
+classification = "parity"
+modes = ["memory", "file"]
+tests = [
+    "tests/architecture/test_boundaries.py",
+    "tests/security/test_database_paths.py",
+    "tests/security/test_security_policy.py",
+    "tests/security/test_sql_inputs.py",
+]
+docs = ["docs/security.md", "SECURITY.md"]
+phase = 6

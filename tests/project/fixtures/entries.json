@@ -1,0 +1,10 @@
+[
+  {
+    "model": "pyturso_test_project.entry",
+    "pk": 100,
+    "fields": {
+      "title": "fixture entry",
+      "active": true
+    }
+  }
+]

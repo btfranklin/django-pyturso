@@ -1,0 +1,53 @@
+name: Upload Python Package
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
+      - name: Verify release tag and commit identity
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          test "$(git rev-list -n 1 "$TAG")" = "$(git rev-parse HEAD)"
+          git verify-tag "$TAG"
+      - name: Download exact release distributions and hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir release-assets dist
+          gh release download "$TAG" --dir release-assets
+          cd release-assets
+          shasum -a 256 -c SHA256SUMS
+          cp ./*.whl ./*.tar.gz ../dist/
+      - name: Verify release artifact provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          for artifact in release-assets/*.whl release-assets/*.tar.gz; do
+            gh attestation verify "$artifact" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "github.com/$GITHUB_REPOSITORY/.github/workflows/draft-release-notes.yml" \
+              --source-ref "refs/tags/$TAG" \
+              --source-digest "$(git rev-parse HEAD)"
+          done
+      - name: Publish previously built artifacts with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@v1
+        with:
+          packages-dir: dist/

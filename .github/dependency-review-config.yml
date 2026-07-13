@@ -1,0 +1,14 @@
+# Runtime dependencies must use a maintainer-reviewed SPDX license. Unknown
+# licenses are deliberately not allowed; use the checked-in exception process.
+fail-on-severity: high
+fail-on-scopes:
+  - runtime
+license-check: true
+allow-licenses:
+  - Apache-2.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC
+  - MIT
+  - Python-2.0
+  - PSF-2.0

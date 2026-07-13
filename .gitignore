@@ -1,0 +1,37 @@
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+
+# PDM and virtual environments
+.pdm-build/
+.pdm-python
+.venv/
+__pypackages__/
+
+# Tool caches and coverage
+.benchmarks/
+.hypothesis/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+artifacts/coverage/
+mutants/
+
+# Build and distribution artifacts
+build/
+dist/
+*.egg-info/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/

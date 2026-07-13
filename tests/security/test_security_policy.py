@@ -67,6 +67,15 @@ def test_workflow_policy_accepts_human_readable_action_versions(
     validate_security.validate_workflows()
 
 
+def test_workflow_policy_accepts_documented_pypi_release_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_workflow(tmp_path / "sample.yml", "pypa/gh-action-pypi-publish@release/v1")
+    monkeypatch.setattr(validate_security, "WORKFLOW_ROOT", tmp_path)
+
+    validate_security.validate_workflows()
+
+
 def test_workflow_policy_rejects_commit_sha_action_pins(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

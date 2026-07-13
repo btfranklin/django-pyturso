@@ -40,6 +40,7 @@ CLASSIFIER_LICENSES = {
 ACTION_VERSION = re.compile(
     r"^\s*(?:-\s+)?uses:\s+(?P<action>[^\s@]+)@(?P<version>v\d+)\s*$"
 )
+PYPI_PUBLISH_RELEASE_CHANNEL = "pypa/gh-action-pypi-publish@release/v1"
 
 
 def _require_nonempty_text(entry: dict[str, Any], field: str, index: int) -> None:
@@ -182,10 +183,13 @@ def validate_workflows() -> None:
             target = line.split("uses:", 1)[1].strip()
             if target.startswith(("./", "docker://")):
                 continue
+            if target == PYPI_PUBLISH_RELEASE_CHANNEL:
+                continue
             if not ACTION_VERSION.match(line):
                 raise ValueError(
-                    f"{path.name}:{lineno} action must use a major release tag such as "
-                    "v4; minor, patch, and commit SHA pins are forbidden"
+                    f"{path.name}:{lineno} action must use a major release tag such as v4 "
+                    "or the documented PyPI release/v1 channel; minor, patch, and commit "
+                    "SHA pins are forbidden"
                 )
         if path.name == "python-package.yml":
             if "secrets." in text or re.search(r"^\s+\w[\w-]*:\s+write\s*$", text, re.MULTILINE):

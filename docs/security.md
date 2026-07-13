@@ -87,9 +87,12 @@ publication job can request a PyPI identity token. Pull-request tests receive no
 publication secret or write permission.
 
 Every third-party action reference uses a human-readable major release tag such
-as `v7` or `v3`; minor, patch, and commit SHA pins are forbidden. Dependabot
-proposes GitHub Actions updates for review. CodeQL scans the Python and workflow
-source on pull requests, default-branch pushes, and a weekly schedule.
+as `v7` or `v3`; minor, patch, and commit SHA pins are forbidden. The sole
+exception is `pypa/gh-action-pypi-publish@release/v1`: PyPA does not publish a
+`v1` tag and documents `release/v1` as its maintained major-line channel.
+Dependabot proposes GitHub Actions updates for review. CodeQL scans the Python
+and workflow source on pull requests, default-branch pushes, and a weekly
+schedule.
 
 The tag workflow refuses to proceed while `IMPLEMENTATION_PLAN.md` exists. It
 requires locked/minimum platform checks on macOS, Linux, and Windows, a Linux

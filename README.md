@@ -1,5 +1,7 @@
 # django-pyturso
 
+![django-pyturso banner](https://raw.githubusercontent.com/btfranklin/django-pyturso/main/.github/social%20preview/django_pyturso_social_preview.jpg "django-pyturso")
+
 `django-pyturso` is a Django database backend for the embedded Turso database
 engine exposed by `pyturso`. It will let a Django project use its ordinary ORM,
 migrations, forms, admin, and transaction APIs against a local Turso database

@@ -17,8 +17,8 @@ from django.utils.regex_helper import _lazy_re_compile
 if TYPE_CHECKING:
     from django.db.backends.base.introspection import _ConstraintDict, _SequenceDict
 
-# Type-affinity mapping, schema parsing, and constraint assembly are adapted
-# from Django 6.0.7's SQLite backend. See docs/design/django-provenance.md.
+# Type-affinity mapping, schema parsing, and constraint assembly follow Django
+# 6.0.7's SQLite dialect.
 
 
 class FieldInfo(NamedTuple):
@@ -166,7 +166,9 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         relations: dict[str, tuple[str, str]] = {}
         for rows_for_constraint in rows.values():
             target_table = rows_for_constraint[0][2]
-            target_columns = self._target_columns(cursor, target_table, rows_for_constraint)
+            target_columns = self._resolve_foreign_key_target_columns(
+                cursor, target_table, rows_for_constraint
+            )
             for row, target_column in zip(rows_for_constraint, target_columns, strict=True):
                 relations[row[3]] = (target_column, target_table)
         return relations
@@ -232,7 +234,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
         for foreign_key_id, rows in self._foreign_key_rows(cursor, table_name).items():
             target_table = rows[0][2]
-            target_columns = self._target_columns(cursor, target_table, rows)
+            target_columns = self._resolve_foreign_key_target_columns(cursor, target_table, rows)
             constraints[f"fk_{foreign_key_id}"] = cast(
                 "_ConstraintDict",
                 {
@@ -255,18 +257,33 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             rows.sort(key=lambda row: row[1])
         return dict(grouped)
 
-    def _target_columns(
+    def _resolve_foreign_key_target_columns(
         self, cursor: Any, target_table: str, rows: list[tuple[Any, ...]]
     ) -> list[str]:
-        declared = [row[4] for row in rows]
-        if all(column not in (None, "") for column in declared):
-            return [str(column) for column in declared]
+        declared_columns = [row[4] for row in rows]
+        if all(column not in (None, "") for column in declared_columns):
+            return [str(column) for column in declared_columns]
         primary_key_columns = self.get_primary_key_columns(cursor, target_table) or []
         if len(primary_key_columns) != len(rows):
+            source_columns = tuple(str(row[3]) for row in rows)
             raise DatabaseError(
-                f"Cannot resolve foreign key target columns for table {target_table!r}."
+                "Cannot resolve foreign key target columns for "
+                f"{target_table!r}: source columns {source_columns!r} do not match "
+                f"the target primary key {tuple(primary_key_columns)!r}."
             )
-        return primary_key_columns
+        resolved: list[str] = []
+        for row, declared_column in zip(rows, declared_columns, strict=True):
+            sequence = int(row[1])
+            if sequence >= len(primary_key_columns):
+                raise DatabaseError(
+                    f"Invalid foreign-key sequence {sequence} for table {target_table!r}."
+                )
+            resolved.append(
+                str(declared_column)
+                if declared_column not in (None, "")
+                else primary_key_columns[sequence]
+            )
+        return resolved
 
     @staticmethod
     def _get_schema_sql(cursor: Any, object_type: str, name: str) -> str | None:

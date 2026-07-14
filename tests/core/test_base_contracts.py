@@ -9,7 +9,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError
 
 from django_pyturso.base import DatabaseWrapper, _get_varchar_column
-from tests.core.test_connection import wrapper_settings
+from tests.support import wrapper_settings
 
 pytestmark = pytest.mark.core
 
@@ -107,7 +107,7 @@ def test_constraint_discovery_passes_the_live_cursor(
 
     monkeypatch.setattr(wrapper, "cursor", lambda: cursor)
     monkeypatch.setattr(wrapper.introspection, "table_names", table_names)
-    monkeypatch.setattr(wrapper, "_foreign_keys_by_id", foreign_keys)
+    monkeypatch.setattr(wrapper.introspection, "_foreign_key_rows", foreign_keys)
 
     wrapper.check_constraints()
 
@@ -123,8 +123,8 @@ def test_foreign_key_check_uses_quoted_child_and_parent_aliases(
     rows = [(0, 0, "parent", "parent_id", "id")]
 
     monkeypatch.setattr(
-        wrapper,
-        "_resolve_foreign_key_targets",
+        wrapper.introspection,
+        "_resolve_foreign_key_target_columns",
         lambda candidate, target, candidate_rows: ["id"],
     )
     monkeypatch.setattr(

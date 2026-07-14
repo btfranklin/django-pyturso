@@ -11,7 +11,8 @@ from django.db import DatabaseError, NotSupportedError
 from django.db.transaction import TransactionManagementError
 
 from django_pyturso.base import DatabaseWrapper
-from tests.core.test_connection import wrapper_settings
+from django_pyturso.introspection import DatabaseIntrospection
+from tests.support import wrapper_settings
 
 pytestmark = pytest.mark.core
 
@@ -138,7 +139,9 @@ def test_omitted_foreign_key_targets_require_matching_primary_key(
     rows = [(0, 0, "parent", "parent_id", None)]
 
     with pytest.raises(DatabaseError, match="do not match the target primary key"):
-        wrapper._resolve_foreign_key_targets(object(), "parent", rows)
+        cast(DatabaseIntrospection, wrapper.introspection)._resolve_foreign_key_target_columns(
+            object(), "parent", rows
+        )
 
 
 def test_omitted_foreign_key_targets_reject_invalid_sequence(
@@ -153,7 +156,9 @@ def test_omitted_foreign_key_targets_reject_invalid_sequence(
     rows = [(0, 1, "parent", "parent_id", None)]
 
     with pytest.raises(DatabaseError, match="Invalid foreign-key sequence 1"):
-        wrapper._resolve_foreign_key_targets(object(), "parent", rows)
+        cast(DatabaseIntrospection, wrapper.introspection)._resolve_foreign_key_target_columns(
+            object(), "parent", rows
+        )
 
 
 def test_source_identity_rejects_fully_shadowed_rowid_aliases(

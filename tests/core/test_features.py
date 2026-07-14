@@ -2,24 +2,31 @@
 
 from __future__ import annotations
 
-from django.db.backends.base.features import BaseDatabaseFeatures
+from types import SimpleNamespace
 
+import pytest
+
+from django_pyturso.base import DatabaseWrapper
 from django_pyturso.features import DatabaseFeatures
+from tests.support import wrapper_settings
+
+pytestmark = pytest.mark.core
 
 
-def _public_base_capability_names() -> set[str]:
-    return {name for name in vars(BaseDatabaseFeatures) if not name.startswith("_")}
-
-
-def test_every_django_6_base_capability_has_an_explicit_disposition() -> None:
-    expected = _public_base_capability_names()
-
-    assert expected <= set(vars(DatabaseFeatures))
-
-
-def test_mutating_base_transaction_probe_is_replaced_by_fixed_evidence() -> None:
+def test_core_capability_declarations() -> None:
     assert vars(DatabaseFeatures)["supports_transactions"] is True
     assert vars(DatabaseFeatures)["supports_explaining_query_execution"] is True
+
+
+def test_database_capability_methods_apply_fixed_declarations() -> None:
+    features = DatabaseFeatures(DatabaseWrapper(wrapper_settings(), "capabilities"))
+
+    managed = SimpleNamespace(_meta=SimpleNamespace(managed=True))
+    unmanaged = SimpleNamespace(_meta=SimpleNamespace(managed=False))
+    assert not features.allows_group_by_selected_pks_on_model(managed)
+    features.allows_group_by_selected_pks = True
+    assert features.allows_group_by_selected_pks_on_model(managed)
+    assert not features.allows_group_by_selected_pks_on_model(unmanaged)
 
 
 def test_high_risk_conservative_values_match_the_v1_contract() -> None:

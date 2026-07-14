@@ -30,8 +30,7 @@ from django.db.models.functions import (
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime, parse_time
 
-# Selected conversion/conflict methods are adapted from Django 6.0.7's SQLite
-# backend. See docs/design/django-provenance.md.
+# Selected conversion and conflict methods follow Django 6.0.7's SQLite dialect.
 
 _UNSUPPORTED_EXPRESSION_TYPES = (
     AnyValue,
@@ -446,7 +445,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         if connector not in {"+", "-", "*", "/"}:
             raise DatabaseError(f"Invalid connector for timedelta: {connector}.")
         raise NotSupportedError(
-            "Duration arithmetic is disabled until the full Turso precision matrix passes."
+            "Duration arithmetic isn't supported by django-pyturso v1."
         )
 
     def integer_field_range(self, internal_type: str) -> tuple[int, int]:
@@ -465,7 +464,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         rhs: tuple[str, Sequence[Any]],
     ) -> tuple[str, tuple[Any, ...]]:
         raise NotSupportedError(
-            "Temporal subtraction is disabled until the full Turso precision matrix passes."
+            "Temporal subtraction isn't supported by django-pyturso v1."
         )
 
     def insert_statement(self, on_conflict: OnConflict | None = None) -> str:

@@ -4,34 +4,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import turso
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
 
 from django_pyturso.base import DatabaseWrapper, TursoCursorWrapper
+from tests.support import wrapper_settings
 
 
 class BytesPath:
     def __fspath__(self) -> bytes:
         return b"local.db"
-
-
-def wrapper_settings(**overrides: Any) -> dict[str, Any]:
-    values: dict[str, Any] = {
-        "ENGINE": "django_pyturso",
-        "NAME": ":memory:",
-        "OPTIONS": {},
-        "HOST": "",
-        "PORT": "",
-        "USER": "",
-        "PASSWORD": "",
-        "AUTOCOMMIT": True,
-        "CONN_MAX_AGE": 0,
-        "CONN_HEALTH_CHECKS": False,
-        "TIME_ZONE": None,
-        "TEST": {"NAME": None},
-    }
-    values.update(overrides)
-    return values
 
 
 @pytest.mark.core
@@ -47,6 +30,10 @@ def test_memory_connection_uses_turso_and_enables_foreign_keys(
     assert value == 1
     assert foreign_keys == 1
     assert connection.connection.__class__.__module__ == "turso.lib"
+
+
+def test_driver_lacks_the_binary_constructor_excluded_by_the_v1_contract() -> None:
+    assert not hasattr(turso, "Binary")
 
 
 @pytest.mark.core

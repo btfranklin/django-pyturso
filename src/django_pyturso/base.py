@@ -5,10 +5,9 @@ from __future__ import annotations
 import os
 import re
 import time
-from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from itertools import tee
-from typing import Any
+from typing import Any, cast
 
 import turso as Database
 from django.core.exceptions import ImproperlyConfigured
@@ -24,9 +23,8 @@ from .introspection import DatabaseIntrospection
 from .operations import DatabaseOperations
 from .schema import DatabaseSchemaEditor
 
-# Field mappings and operators are adapted from Django 6.0.7's SQLite backend.
+# Field mappings and operators follow Django 6.0.7's SQLite dialect.
 # Placeholder conversion deliberately uses a local SQL-aware implementation.
-# See docs/design/django-provenance.md.
 
 
 def _get_varchar_column(data: Mapping[str, Any]) -> str:
@@ -261,6 +259,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def check_constraints(self, table_names: Iterable[str] | None = None) -> None:
         """Raise for the first invalid FK without PRAGMA foreign_key_check."""
+        introspection = cast(DatabaseIntrospection, self.introspection)
         with self.cursor() as cursor:
             tables = (
                 list(table_names)
@@ -268,49 +267,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 else self.introspection.table_names(cursor)
             )
             for table_name in tables:
-                foreign_keys = self._foreign_keys_by_id(cursor, table_name)
+                foreign_keys = introspection._foreign_key_rows(cursor, table_name)
                 for rows in foreign_keys.values():
                     self._check_foreign_key(cursor, table_name, rows)
-
-    def _foreign_keys_by_id(self, cursor: Any, table_name: str) -> dict[int, list[tuple[Any, ...]]]:
-        cursor.execute("PRAGMA foreign_key_list(%s)" % self.ops.quote_name(table_name))
-        grouped: defaultdict[int, list[tuple[Any, ...]]] = defaultdict(list)
-        for raw_row in cursor.fetchall():
-            row = tuple(raw_row)
-            grouped[int(row[0])].append(row)
-        for rows in grouped.values():
-            rows.sort(key=lambda row: int(row[1]))
-        return dict(grouped)
-
-    def _resolve_foreign_key_targets(
-        self, cursor: Any, target_table: str, rows: list[tuple[Any, ...]]
-    ) -> list[str]:
-        declared_columns = [row[4] for row in rows]
-        if all(column not in (None, "") for column in declared_columns):
-            return [str(column) for column in declared_columns]
-
-        primary_key_columns = self.introspection.get_primary_key_columns(cursor, target_table) or []
-        if len(primary_key_columns) != len(rows):
-            source_columns = tuple(str(row[3]) for row in rows)
-            raise DatabaseError(
-                "Cannot resolve omitted foreign-key target columns for "
-                f"{target_table!r}: source columns {source_columns!r} do not match "
-                f"the target primary key {tuple(primary_key_columns)!r}."
-            )
-
-        resolved: list[str] = []
-        for row, declared_column in zip(rows, declared_columns, strict=True):
-            sequence = int(row[1])
-            if sequence >= len(primary_key_columns):
-                raise DatabaseError(
-                    f"Invalid foreign-key sequence {sequence} for table {target_table!r}."
-                )
-            resolved.append(
-                str(declared_column)
-                if declared_column not in (None, "")
-                else primary_key_columns[sequence]
-            )
-        return resolved
 
     def _source_identity(
         self, cursor: Any, table_name: str, child_alias: str
@@ -341,7 +300,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def _check_foreign_key(self, cursor: Any, table_name: str, rows: list[tuple[Any, ...]]) -> None:
         target_table = str(rows[0][2])
         source_columns = [str(row[3]) for row in rows]
-        target_columns = self._resolve_foreign_key_targets(cursor, target_table, rows)
+        introspection = cast(DatabaseIntrospection, self.introspection)
+        target_columns = introspection._resolve_foreign_key_target_columns(
+            cursor, target_table, rows
+        )
         child_alias = self.ops.quote_name("django_pyturso_child")
         parent_alias = self.ops.quote_name("django_pyturso_parent")
         identity_sql, identity_names = self._source_identity(cursor, table_name, child_alias)

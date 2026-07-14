@@ -1,11 +1,16 @@
 """Turso-backed schema introspection tests."""
 
+from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import sqlparse
 from django.db import DatabaseError, connection
 
-from django_pyturso.introspection import FlexibleFieldLookupDict
+from django_pyturso.base import DatabaseWrapper
+from django_pyturso.introspection import DatabaseIntrospection, FlexibleFieldLookupDict
+from tests.support import wrapper_settings
 
 
 @pytest.mark.core
@@ -232,3 +237,161 @@ def test_flexible_type_affinity_fallbacks() -> None:
     assert types["CUSTOM TEXT VALUE"] == "TextField"
     assert types[""] == "BinaryField"
     assert types["NUMERIC(10, 2)"] == "DecimalField"
+
+
+def test_introspection_fallback_and_empty_helper_branches() -> None:
+    assert FlexibleFieldLookupDict()["custom_type"] == "DecimalField"
+    assert DatabaseIntrospection._parse_table_constraints("", {"value"}) == {}
+    assert DatabaseIntrospection._parse_table_constraints("CREATE TABLE sample", {"value"}) == {}
+    assert DatabaseIntrospection._get_column_collations(None) == {}
+    assert DatabaseIntrospection._get_column_sizes(None) == {}
+    assert DatabaseIntrospection._get_json_columns(None, {"value"}) == set()
+    assert DatabaseIntrospection._leading_identifier("") is None
+    assert DatabaseIntrospection._leading_identifier("   ") is None
+    assert DatabaseIntrospection._leading_identifier('"a""b" text') == 'a"b'
+    assert DatabaseIntrospection._leading_identifier("`backtick` text") == "backtick"
+    assert DatabaseIntrospection._leading_identifier("[bracket] text") == "bracket"
+    assert DatabaseIntrospection._leading_identifier("plain text") == "plain"
+    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE sample") == []
+
+
+def test_json_column_detection_is_exact_and_conservative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quoted_sql = """
+        CREATE TABLE sample (
+            short text,
+            `backtick suffix` text CHECK (JSON_VALID(`backtick suffix`)),
+            [bracket suffix] text CHECK (JSON_VALID([bracket suffix]))
+        )
+    """
+    assert DatabaseIntrospection._get_json_columns(
+        quoted_sql, {"short", "backtick suffix", "bracket suffix"}
+    ) == {"backtick suffix", "bracket suffix"}
+    assert (
+        DatabaseIntrospection._get_json_columns(
+            "CREATE TABLE sample (value text CHECK (JSON_VALID(CAST(value AS TEXT))))",
+            {"value"},
+        )
+        == set()
+    )
+    assert (
+        DatabaseIntrospection._get_json_columns(
+            "CREATE TABLE sample (other text CHECK (JSON_VALID(other)))", {"value"}
+        )
+        == set()
+    )
+
+    monkeypatch.setattr("django_pyturso.introspection.sqlparse.parse", lambda sql: [])
+    assert DatabaseIntrospection._get_json_columns("malformed", {"value"}) == set()
+
+
+def test_introspection_definition_splitter_quotes_nesting_and_malformed_sql() -> None:
+    sql = """
+        CREATE TABLE sample (
+            "a""b" text DEFAULT 'x,y',
+            `backtick` text,
+            [bracket] text,
+            nested text CHECK (nested IN ('a,b', 'c')),
+            plain text
+        )
+    """
+    definitions = DatabaseIntrospection._split_table_definitions(sql)
+    assert len(definitions) == 5
+    assert definitions[0] == '"a""b" text DEFAULT \'x,y\''
+    assert definitions[2] == "[bracket] text"
+    assert "('a,b', 'c')" in definitions[3]
+    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE x (a int,, b int)") == [
+        "a int",
+        "b int",
+    ]
+    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE x (a int,)") == ["a int"]
+    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE x (a int") == []
+
+
+def test_introspection_constraint_parser_quoted_and_empty_branches() -> None:
+    sql = """
+        CREATE TABLE sample (
+            "quoted field" text UNIQUE,
+            other text,
+            CONSTRAINT "quoted unique" UNIQUE ("quoted field", other),
+        CONSTRAINT "quoted check" CHECK (other <> '' AND other <> '')
+        )
+    """
+    constraints = DatabaseIntrospection._parse_table_constraints(sql, {"quoted field", "other"})
+    assert constraints["__unnamed_constraint_1__"]["columns"] == ["quoted field"]
+    assert constraints["quoted unique"]["columns"] == ["quoted field", "other"]
+    assert constraints["quoted check"]["columns"] == ["other"]
+
+    empty: Iterator[Any] = iter(())
+    with pytest.raises(DatabaseError, match="empty table definition"):
+        DatabaseIntrospection._parse_column_or_constraint_definition(empty, {"value"})
+
+    unrecognized_constraint_name = iter(
+        [
+            sqlparse.sql.Token(sqlparse.tokens.Keyword, "CONSTRAINT"),  # type: ignore[no-untyped-call]
+            sqlparse.sql.Token(sqlparse.tokens.Punctuation, "@"),  # type: ignore[no-untyped-call]
+            sqlparse.sql.Token(sqlparse.tokens.Punctuation, ","),  # type: ignore[no-untyped-call]
+        ]
+    )
+    name, unique, check, _ = DatabaseIntrospection._parse_column_or_constraint_definition(
+        unrecognized_constraint_name, {"value"}
+    )
+    assert (name, unique, check) == (None, None, None)
+
+    assert (
+        DatabaseIntrospection._parse_table_constraints(
+            "CREATE TABLE x (CONSTRAINT [bad] CHECK (missing))", {"actual"}
+        )
+        == {}
+    )
+    assert (
+        DatabaseIntrospection._parse_table_constraints(
+            "CREATE TABLE x (CONSTRAINT empty UNIQUE ())", {"actual"}
+        )
+        == {}
+    )
+    DatabaseIntrospection._parse_table_constraints("CREATE TABLE x (123 UNIQUE)", {"actual"})
+    assert (
+        DatabaseIntrospection._parse_table_constraints(
+            "CREATE TABLE x (actual text CHECK (missing))", {"actual"}
+        )
+        == {}
+    )
+
+
+def test_leading_identifier_with_only_whitespace_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    statement = SimpleNamespace(flatten=lambda: [SimpleNamespace(is_whitespace=True)])
+    monkeypatch.setattr(
+        "django_pyturso.introspection.sqlparse.parse", lambda definition: [statement]
+    )
+    assert DatabaseIntrospection._leading_identifier("synthetic") is None
+
+
+@pytest.mark.core
+def test_introspection_no_primary_key_and_constraint_edge_branches(
+    django_db_blocker: Any,
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute("CREATE TABLE support_no_pk (value text, other text)")
+        cursor.execute("CREATE INDEX support_no_pk_idx ON support_no_pk (value ASC)")
+        try:
+            assert connection.introspection.get_primary_key_columns(cursor, "support_no_pk") is None
+            assert connection.introspection.get_sequences(cursor, "support_no_pk") == []
+            constraints = connection.introspection.get_constraints(cursor, "support_no_pk")
+            assert "__primary__" not in constraints
+            assert constraints["support_no_pk_idx"]["orders"] == ["ASC"]
+        finally:
+            cursor.execute("DROP TABLE support_no_pk")
+
+
+def test_introspection_omitted_target_mismatch_is_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    introspection = DatabaseIntrospection(DatabaseWrapper(wrapper_settings(), "probe"))
+    monkeypatch.setattr(introspection, "get_primary_key_columns", lambda cursor, table: ["id"])
+    rows = [(0, 0, "target", "left", None), (0, 1, "target", "right", None)]
+    with pytest.raises(DatabaseError, match="Cannot resolve foreign key target columns"):
+        introspection._resolve_foreign_key_target_columns(SimpleNamespace(), "target", rows)

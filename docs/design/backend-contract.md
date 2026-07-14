@@ -48,8 +48,7 @@ switches, and are covered by focused tests.
 - Named timezone conversion is rejected; database-side temporal operations are
   supported only without conversion or in UTC.
 - Duration values are stored as integer microseconds, but duration arithmetic
-  and temporal subtraction remain disabled until a complete equivalence matrix
-  passes.
+  and temporal subtraction are not supported in v1.
 - Window expressions, select-for-update, generated columns, database comments,
   deferrable unique constraints, covering indexes, and other capabilities
   declared false in `features.py` are not supported merely because a narrow SQL

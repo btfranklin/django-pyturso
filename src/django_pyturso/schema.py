@@ -18,9 +18,8 @@ from django.db.models import CompositePrimaryKey, UniqueConstraint
 
 from .features import DatabaseFeatures
 
-# The table-remake algorithm is substantially adapted from Django 6.0.7's
-# django/db/backends/sqlite3/schema.py. Constraint state management and default
-# quoting are local Turso implementations. See docs/design/django-provenance.md.
+# The table-remake algorithm follows Django 6.0.7's SQLite backend. Constraint
+# state management and default quoting are local Turso implementations.
 
 
 class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):

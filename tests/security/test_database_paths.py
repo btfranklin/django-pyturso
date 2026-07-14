@@ -14,7 +14,7 @@ import pytest
 from django.db import OperationalError
 
 from django_pyturso.base import DatabaseWrapper
-from tests.core.test_connection import wrapper_settings
+from tests.support import wrapper_settings
 
 
 def _round_trip(wrapper: DatabaseWrapper) -> None:

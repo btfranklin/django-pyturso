@@ -1,29 +1,29 @@
-# Native Platform CI Deployment Guide
+# Native Platform CI Evidence
 
-## Status and boundary
+## Verified remote evidence
 
-The native platform run is intentionally deferred until this repository has a
-GitHub deployment. The workflow design is complete, but no remote workflow has
-been executed and no native Linux x86_64 or Windows x86_64 result is claimed.
-The existing macOS arm64, Linux arm64, and emulated Linux x86_64 evidence remains
-recorded in `docs/design/evidence/driver-platform-matrix.md`.
+The native Linux x86_64 and Windows x86_64 matrix completed successfully in
+[Python package run 29308634115](https://github.com/btfranklin/django-pyturso/actions/runs/29308634115)
+for commit `779d2b301fcdbf578dd8200f55230ba2f028b42f`. All locked and minimum
+resolution cells passed, and their four driver-contract artifacts were reviewed.
+The durable run, artifact, platform, wheel, and version record is
+`docs/design/evidence/remote-platform-matrix.json`; its structure is validated
+before release evidence may claim that the remote matrix ran.
 
-This procedure is verification only. It must not publish a package, create a
-tag or GitHub Release, upload to PyPI, or invoke any release workflow.
+This verification did not publish a package, create a tag or GitHub Release, or
+upload to PyPI.
 
-## Deployment prerequisites
+## Re-execution prerequisites
 
-Before running the matrix:
+Before replacing this evidence with a later run:
 
-1. Create or select the authorized GitHub repository and push the prepared
-   source only after explicit approval.
-2. Confirm GitHub Actions is enabled and GitHub-hosted `ubuntu-24.04` and
+1. Confirm GitHub Actions is enabled and GitHub-hosted `ubuntu-24.04` and
    `windows-2025` runners are available as native x86_64 machines.
-3. Confirm CPython 3.14 is available through `actions/setup-python` on both
+2. Confirm CPython 3.14 is available through `actions/setup-python` on both
    runners.
-4. Keep `pdm.lock` and `pdm.min.lock` committed and synchronized with
+3. Keep `pdm.lock` and `pdm.min.lock` committed and synchronized with
    `pyproject.toml`. Do not resolve dependencies ad hoc in the workflow.
-5. Do not add publication credentials or repository write permissions. The
+4. Do not add publication credentials or repository write permissions. The
    package workflow requires only read access to repository contents.
 
 The prepared matrix lives in `.github/workflows/python-package.yml`. Its
@@ -71,21 +71,17 @@ For every required cell, the combined workflow record and JSON must establish:
 - a passing exact test result from the same lockfile resolution, retained in
   the workflow job log.
 
-## Acceptance and repository update
+## Reviewed acceptance record
 
-The deferred evidence is complete only when all four required native cells pass
-for the same commit. Review the downloaded JSON files rather than relying only
-on green job summaries. Then:
+All four required native cells passed for the same commit. The reviewed
+artifacts have these GitHub digests:
 
-1. Add the four reviewed rows, run identifiers, commit SHA, and artifact digests
-   to `docs/design/evidence/driver-platform-matrix.md`.
-2. Update the release evidence generator so `remote_matrix_executed` becomes
-   true only from durable reviewed evidence, not from a manually edited claim.
-3. Regenerate and validate the local release evidence index against the exact
-   reviewed commit and artifacts.
-4. Keep publication, tagging, and release creation as separately authorized
-   actions.
+| Runner | Resolution | Artifact digest |
+| --- | --- | --- |
+| `ubuntu-24.04` | locked | `sha256:5b3138a68f70cc97927c5372e6cdf40d26a3d5c23579d52ffba40d683860b688` |
+| `ubuntu-24.04` | minimum | `sha256:e37fc87b01886f3c21cc10c151471d7bb52ff5fafb5ba4fd406d1b3a7ff3b8d8` |
+| `windows-2025` | locked | `sha256:af9db978426fa61f5bf010f76173383f99084bde9e5dd9229bf75ad293dcd353` |
+| `windows-2025` | minimum | `sha256:98b6478c38f95cda8769851183342b6b66f4375cbb58d3f8a7f1d3660afd167b` |
 
-If any cell fails, retain its logs and JSON if available, leave
-`remote_matrix_executed` false, fix the underlying issue locally, and rerun the
-entire four-cell native matrix on one new commit.
+For a future rerun, review all four new artifacts before replacing the durable
+record. A failed or incomplete replacement must not alter the verified record.

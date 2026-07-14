@@ -27,21 +27,28 @@ document keeps the reviewed conclusions compact.
 
 ## Current platform matrix
 
-Evidence last refreshed on 2026-07-13 at `2026-07-13T19:29:52.908837+00:00`.
+Remote evidence last refreshed on 2026-07-14 from
+[Python package run 29308634115](https://github.com/btfranklin/django-pyturso/actions/runs/29308634115)
+for commit `779d2b301fcdbf578dd8200f55230ba2f028b42f`.
 
 | OS/kernel | Architecture | Python | Django | `pyturso` | Connected engine | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | Darwin 25.5.0 | arm64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Local Phase 0A probe passed |
 | Linux 6.12.76-linuxkit | arm64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Disposable Docker probe passed |
 | Linux 6.12.76-linuxkit | x86_64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Docker probe passed under emulation |
-| Native Linux x86_64 and Windows release cells | — | — | — | — | — | Not yet evidenced by this repository |
+| Linux 6.17.0-1018-azure | x86_64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `ubuntu-24.04`, locked, passed |
+| Linux 6.17.0-1018-azure | x86_64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `ubuntu-24.04`, minimum, passed |
+| Windows 10.0.26100 | AMD64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `windows-2025`, locked, passed |
+| Windows 10.0.26100 | AMD64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `windows-2025`, minimum, passed |
 
 The Darwin and Linux arm64 rows are native to the host architecture. The Linux
 x86_64 row used Docker's architecture emulation, so it proves wheel resolution
 and the probe contract but is not a substitute for native-runner timing,
-locking, or recovery evidence. Release CI must add a row for every publicly
-supported native cell and must not hide a failing cell with
-`continue-on-error`.
+locking, or recovery evidence. The remote run's four reviewed artifacts now
+provide that native Linux/Windows evidence; see
+[`remote-platform-matrix.json`](remote-platform-matrix.json) for their artifact
+identities, digests, and wheel tags. The matrix must not hide a failing cell
+with `continue-on-error`.
 
 Local process details were Darwin kernel
 `25.5.0: Tue Jun 9 22:28:29 PDT 2026; xnu-12377.121.10~1/RELEASE_ARM64_T6030`,
@@ -186,17 +193,18 @@ The local file probe observed:
 - After both connections closed, the main file was 8192 bytes and the WAL file
   remained present at zero bytes. The temporary directory was then removed.
 
-This proves the local two-connection and clean-close observations. Crash
-recovery, checkpoint policy, sidecar backup rules, multi-process access, and
-cross-platform file behavior require later dedicated evidence.
+The reviewed native Linux and Windows artifacts independently reproduced these
+file, lock, close, sidecar, and cleanup observations for both committed
+resolutions. Crash recovery, checkpoint policy, sidecar backup rules, and
+multi-process access require later dedicated evidence.
 
 ## Parameter floor
 
 Parameterized `VALUES` statements containing 999, 1000, 32766, and 32767
 qmark parameters all succeeded locally and returned the expected count.
-Because only one platform/wheel cell has produced evidence, v1 retains 999 as
-its conservative cross-platform floor. A higher backend limit requires a
-passing minimum-driver result in every supported platform cell.
+All required native locked/minimum cells now reproduce these results. v1 keeps
+999 as its intentional conservative cross-platform floor; raising it requires a
+separate compatibility decision rather than merely more evidence.
 
 ## Regression coverage
 

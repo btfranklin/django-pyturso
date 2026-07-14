@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,13 @@ from scripts.verify_packages import DIST, _artifacts, _read_metadata
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "artifacts" / "release" / "evidence.json"
+REMOTE_PLATFORM_MATRIX = ROOT / "docs" / "design" / "evidence" / "remote-platform-matrix.json"
+REQUIRED_REMOTE_CELLS = {
+    ("ubuntu-24.04", "locked", "pdm.lock", "Linux", "x86_64"),
+    ("ubuntu-24.04", "minimum", "pdm.min.lock", "Linux", "x86_64"),
+    ("windows-2025", "locked", "pdm.lock", "Windows", "AMD64"),
+    ("windows-2025", "minimum", "pdm.min.lock", "Windows", "AMD64"),
+}
 
 
 def _sha256(path: Path) -> str:
@@ -46,6 +54,55 @@ def _mutation_counts() -> dict[str, int]:
         "survived": counts[0],
         "timeout": counts[2] + counts[-24],
     }
+
+
+def _remote_matrix_executed() -> bool:
+    if not REMOTE_PLATFORM_MATRIX.is_file():
+        return False
+    evidence = json.loads(REMOTE_PLATFORM_MATRIX.read_text(encoding="utf-8"))
+    workflow = evidence.get("workflow")
+    cells = evidence.get("cells")
+    if (
+        evidence.get("schema_version") != 1
+        or not isinstance(workflow, dict)
+        or not isinstance(cells, list)
+    ):
+        raise RuntimeError("remote platform evidence has an invalid schema")
+    if (
+        workflow.get("repository") != "btfranklin/django-pyturso"
+        or not isinstance(workflow.get("run_id"), int)
+        or not isinstance(workflow.get("commit"), str)
+        or len(workflow["commit"]) != 40
+        or workflow.get("url") != f"https://github.com/btfranklin/django-pyturso/actions/runs/{workflow['run_id']}"
+    ):
+        raise RuntimeError("remote platform evidence does not identify one GitHub workflow run")
+    observed: set[tuple[str, str, str, str, str]] = set()
+    for cell in cells:
+        if not isinstance(cell, dict):
+            raise RuntimeError("remote platform evidence contains an invalid cell")
+        platform = cell.get("platform")
+        artifact = cell.get("artifact")
+        if not isinstance(platform, dict) or not isinstance(artifact, dict):
+            raise RuntimeError("remote platform evidence cell is incomplete")
+        observed.add(
+            (
+                str(cell.get("runner")),
+                str(cell.get("resolution")),
+                str(cell.get("lockfile")),
+                str(platform.get("system")),
+                str(platform.get("machine")),
+            )
+        )
+        if (
+            not isinstance(artifact.get("id"), int)
+            or not isinstance(artifact.get("name"), str)
+            or not isinstance(artifact.get("digest"), str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", artifact["digest"])
+        ):
+            raise RuntimeError("remote platform evidence cell lacks an artifact digest")
+    if observed != REQUIRED_REMOTE_CELLS:
+        raise RuntimeError("remote platform evidence does not cover every required native cell")
+    return True
 
 
 def build_document() -> dict[str, Any]:
@@ -92,7 +149,7 @@ def build_document() -> dict[str, Any]:
             "evidence_document": _sha256(
                 ROOT / "docs" / "design" / "evidence" / "driver-platform-matrix.md"
             ),
-            "remote_matrix_executed": False,
+            "remote_matrix_executed": _remote_matrix_executed(),
         },
     }
 

@@ -1,4 +1,4 @@
-name: Build Release Candidate and Draft Notes
+name: Create Draft Release
 
 on:
     push:

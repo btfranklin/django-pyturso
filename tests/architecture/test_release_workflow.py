@@ -3,7 +3,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
-WORKFLOW = ROOT / ".github" / "workflows" / "draft-release-notes.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "create-draft-release.yml"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "python-publish.yml"
 
 

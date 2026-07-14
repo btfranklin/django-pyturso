@@ -9,6 +9,22 @@ permissions:
     contents: read
 
 jobs:
+    lock-integrity:
+        name: Lock integrity
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - name: Verify every committed resolution
+              run: |
+                  pdm lock --check
+                  pdm lock --check --lockfile pdm.min.lock
+                  pdm lock --check --lockfile pdm.latest.lock
+
     dependency-review:
         name: Runtime dependency review
         if: github.event_name == 'pull_request'

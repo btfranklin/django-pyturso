@@ -57,7 +57,6 @@ shims, and experimental engine features are excluded.
 - [Security and supply chain](docs/security.md)
 - [Performance](docs/performance.md)
 - [Post-v1 roadmap](docs/roadmap.md)
-- [Native platform CI deployment guide](NATIVE_PLATFORM_CI.md)
 - [Review policy](docs/review-policy.md)
 - [Releasing](docs/releasing.md)
 - [Documentation index](docs/index.md)

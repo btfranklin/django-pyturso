@@ -5,7 +5,6 @@
 - Package purpose and quickstart: `README.md`
 - Backend boundaries and dependency direction: `docs/architecture.md`
 - Initial implementation contract: `docs/design/backend-contract.md`
-- Deferred native CI procedure: `NATIVE_PLATFORM_CI.md`
 - Documentation map: `docs/index.md`
 
 ## Project Shape

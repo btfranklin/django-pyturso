@@ -49,7 +49,6 @@ source-includes = [
     "docs",
     "scripts",
     "tests",
-    "NATIVE_PLATFORM_CI.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
 ]

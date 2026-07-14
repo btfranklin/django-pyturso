@@ -2,8 +2,6 @@
 
 - [Architecture](architecture.md): package boundaries and supported runtime.
 - [Backend contract](design/backend-contract.md): v1 behavior and exclusions.
-- [Native platform CI deployment guide](../NATIVE_PLATFORM_CI.md): deferred
-  native-runner evidence procedure.
 - [Review policy](review-policy.md): required reasoning-review gates and evidence.
 - [Releasing](releasing.md): parallel same-tag preparation, human approval, and
   Trusted Publishing ownership.

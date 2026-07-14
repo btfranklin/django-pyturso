@@ -35,36 +35,21 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - label: macos-locked
+                    - label: macos
                       os: macos-15
-                      lockfile: pdm.lock
-                    - label: macos-minimum
-                      os: macos-15
-                      lockfile: pdm.min.lock
-                    - label: linux-locked
+                    - label: linux
                       os: ubuntu-24.04
-                      lockfile: pdm.lock
-                    - label: linux-minimum
-                      os: ubuntu-24.04
-                      lockfile: pdm.min.lock
-                    - label: linux-latest
-                      os: ubuntu-24.04
-                      lockfile: pdm.latest.lock
-                    - label: windows-locked
+                    - label: windows
                       os: windows-2025
-                      lockfile: pdm.lock
-                    - label: windows-minimum
-                      os: windows-2025
-                      lockfile: pdm.min.lock
         steps:
             - uses: actions/checkout@v7
             - uses: actions/setup-python@v6
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
-            - name: Install and verify the selected resolution
+            - name: Install and verify the canonical resolution
               run: |
-                  pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
+                  pdm sync -G dev --clean
                   pdm run check
             - name: Capture the driver/platform contract
               run: >-
@@ -89,11 +74,9 @@ jobs:
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
-            - name: Install and validate every lockfile
+            - name: Install and validate the canonical lock
               run: |
                   pdm lock --check
-                  pdm lock --check --lockfile pdm.min.lock
-                  pdm lock --check --lockfile pdm.latest.lock
                   pdm sync -L pdm.lock -G dev --clean
             - name: Run complete release verification
               run: |

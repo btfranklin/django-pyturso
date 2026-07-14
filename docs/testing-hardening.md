@@ -14,13 +14,13 @@ They exercise research and CI behavior only.
 
 `.github/workflows/hardening.yml` is preparation for a weekly, manually
 dispatchable hardening run. It has no push, pull-request, release, publication,
-or deployment trigger. Every job installs through the selected PDM lockfile,
+or deployment trigger. Every job installs through the canonical PDM lockfile,
 has an explicit timeout, and reports the fixed `HARDENING_SEED` used by ordering
 and repetition lanes.
 
 The prepared jobs cover the critical mutation target, bounded stress tests,
-three repeated fast-suite runs with recorded `PYTHONHASHSEED` values, minimum
-and latest dependency locks, environment-sensitive time and locale checks, and
+three repeated fast-suite runs with recorded `PYTHONHASHSEED` values,
+environment-sensitive time and locale checks, and
 both Django-runner and pytest ordering perturbations. The workflow is only
 configuration until GitHub executes it; local validation does not constitute
 platform or scheduled-run evidence.

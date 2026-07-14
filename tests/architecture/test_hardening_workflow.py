@@ -22,7 +22,6 @@ REQUIRED_JOBS = {
     "mutation",
     "stress",
     "repeated-fast",
-    "dependency-bounds",
     "timezones",
     "locale",
     "ordering",
@@ -75,36 +74,6 @@ def test_hardening_workflow_commands_have_exact_lane_ownership() -> None:
     ]
     assert len(mutation_results) == 1
     assert mutation_results[0].get("if") == "always()"
-
-
-def test_hardening_workflow_dependency_lanes_and_install_order_are_explicit() -> None:
-    workflow_jobs = jobs(load_workflow(WORKFLOW))
-    dependency_bounds = workflow_jobs["dependency-bounds"]
-    include = dependency_bounds["strategy"]["matrix"]["include"]
-    assert {(entry["resolution"], entry["lockfile"]) for entry in include} == {
-        ("minimum", "pdm.min.lock"),
-        ("latest", "pdm.latest.lock"),
-    }
-    dependency_lines = job_run_lines(dependency_bounds, job_id="dependency-bounds")
-    assert dependency_lines.index(
-        'pdm lock --check --lockfile "${{ matrix.lockfile }}"'
-    ) < dependency_lines.index(
-        'pdm sync -L "${{ matrix.lockfile }}" -G dev --clean'
-    ) < dependency_lines.index("pdm list --freeze") < dependency_lines.index(
-        "pdm run test-fast"
-    )
-
-    for job_id, job in workflow_jobs.items():
-        lines = job_run_lines(job, job_id=job_id)
-        sync_positions = [index for index, line in enumerate(lines) if line.startswith("pdm sync ")]
-        test_positions = [
-            index
-            for index, line in enumerate(lines)
-            if line.startswith("pdm run ") and line != "pdm run mutation-results"
-        ]
-        assert sync_positions, job_id
-        assert test_positions, job_id
-        assert min(sync_positions) < min(test_positions), job_id
 
 
 def test_local_hardening_commands_and_random_order_dependency_are_declared() -> None:

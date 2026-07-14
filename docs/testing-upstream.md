@@ -12,11 +12,10 @@ requires an unmodified checkout, verifies the installed Django version is
 `6.0.7`, and confirms every configured test label still exists in the pinned
 source before execution.
 
-At the 2026-07-13 lock refresh, Django 6.0.7 is both the declared minimum and
-the newest stable Django 6 release. The minimum and latest lock lanes therefore
-converge on the same upstream source today; they remain separate resolution
-artifacts so a later Django 6 release cannot enter support without an explicit
-manifest/provenance audit.
+The canonical lock resolves Django 6.0.7, which is also the declared lower
+bound. The project advances that lower bound intentionally when adopting later
+Django releases; a later release cannot enter support without an explicit
+manifest and provenance audit.
 
 Run the smoke profile with:
 

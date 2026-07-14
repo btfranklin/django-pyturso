@@ -110,10 +110,9 @@ automatically deletes the merged head branch.
 
 Two workflows start independently from the same version-tag push. Draft
 creation owns the GitHub draft and does not wait for verification. Verification
-refuses to proceed while `IMPLEMENTATION_PLAN.md` exists, requires
-locked/minimum platform checks on macOS, Linux, and Windows, a Linux
-newest-compatible check, and the complete deep-verification job before its
-final artifact check. That check binds wheel and sdist metadata to each other
+refuses to proceed while `IMPLEMENTATION_PLAN.md` exists, requires canonical
+platform checks on macOS, Linux, and Windows, and the complete deep-verification
+job before its final artifact check. That check binds wheel and sdist metadata to each other
 and to the tag version. Verification cannot create or publish a GitHub
 Release. The maintainer reviews the completed verification for the same tag and
 publishes the draft as the human approval gate. See [Releasing](releasing.md).

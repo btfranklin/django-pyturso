@@ -36,15 +36,13 @@ for commit `779d2b301fcdbf578dd8200f55230ba2f028b42f`.
 | Darwin 25.5.0 | arm64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Local Phase 0A probe passed |
 | Linux 6.12.76-linuxkit | arm64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Disposable Docker probe passed |
 | Linux 6.12.76-linuxkit | x86_64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Docker probe passed under emulation |
-| Linux 6.17.0-1018-azure | x86_64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `ubuntu-24.04`, locked, passed |
-| Linux 6.17.0-1018-azure | x86_64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `ubuntu-24.04`, minimum, passed |
-| Windows 10.0.26100 | AMD64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `windows-2025`, locked, passed |
-| Windows 10.0.26100 | AMD64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `windows-2025`, minimum, passed |
+| Linux 6.17.0-1018-azure | x86_64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `ubuntu-24.04`, canonical lock, passed |
+| Windows 10.0.26100 | AMD64 | CPython 3.14.6 | 6.0.7 | 0.6.1 | 3.50.4 | Native `windows-2025`, canonical lock, passed |
 
 The Darwin and Linux arm64 rows are native to the host architecture. The Linux
 x86_64 row used Docker's architecture emulation, so it proves wheel resolution
 and the probe contract but is not a substitute for native-runner timing,
-locking, or recovery evidence. The remote run's four reviewed artifacts now
+locking, or recovery evidence. The remote run's two reviewed artifacts now
 provide that native Linux/Windows evidence; see
 [`remote-platform-matrix.json`](remote-platform-matrix.json) for their artifact
 identities, digests, and wheel tags. The matrix must not hide a failing cell
@@ -194,15 +192,15 @@ The local file probe observed:
   remained present at zero bytes. The temporary directory was then removed.
 
 The reviewed native Linux and Windows artifacts independently reproduced these
-file, lock, close, sidecar, and cleanup observations for both committed
-resolutions. Crash recovery, checkpoint policy, sidecar backup rules, and
+file, lock, close, sidecar, and cleanup observations with the canonical lock.
+Crash recovery, checkpoint policy, sidecar backup rules, and
 multi-process access require later dedicated evidence.
 
 ## Parameter floor
 
 Parameterized `VALUES` statements containing 999, 1000, 32766, and 32767
 qmark parameters all succeeded locally and returned the expected count.
-All required native locked/minimum cells now reproduce these results. v1 keeps
+All required native canonical cells now reproduce these results. v1 keeps
 999 as its intentional conservative cross-platform floor; raising it requires a
 separate compatibility decision rather than merely more evidence.
 

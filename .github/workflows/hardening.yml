@@ -60,29 +60,6 @@ jobs:
             - run: pdm sync -L pdm.lock -G dev --clean
             - run: pdm run hardening-repeated-fast
 
-    dependency-bounds:
-        runs-on: ubuntu-24.04
-        timeout-minutes: 45
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    - resolution: minimum
-                      lockfile: pdm.min.lock
-                    - resolution: latest
-                      lockfile: pdm.latest.lock
-        steps:
-            - uses: actions/checkout@v7
-            - uses: actions/setup-python@v6
-              with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-            - run: pdm lock --check --lockfile "${{ matrix.lockfile }}"
-            - run: pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
-            - run: pdm list --freeze
-            - run: echo "HARDENING_SEED=$HARDENING_SEED"
-            - run: pdm run test-fast
-
     timezones:
         runs-on: ubuntu-24.04
         timeout-minutes: 45

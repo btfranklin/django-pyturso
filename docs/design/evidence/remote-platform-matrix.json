@@ -11,7 +11,7 @@
   "cells": [
     {
       "runner": "ubuntu-24.04",
-      "resolution": "locked",
+      "resolution": "canonical",
       "lockfile": "pdm.lock",
       "artifact": {
         "id": 8301198836,
@@ -26,45 +26,13 @@
       "connected_engine": "3.50.4"
     },
     {
-      "runner": "ubuntu-24.04",
-      "resolution": "minimum",
-      "lockfile": "pdm.min.lock",
-      "artifact": {
-        "id": 8301199005,
-        "name": "driver-platform-ubuntu-24.04-minimum",
-        "digest": "sha256:e37fc87b01886f3c21cc10c151471d7bb52ff5fafb5ba4fd406d1b3a7ff3b8d8"
-      },
-      "platform": {"system": "Linux", "machine": "x86_64"},
-      "python": "3.14.6",
-      "django": "6.0.7",
-      "pyturso": "0.6.1",
-      "pyturso_wheel": "cp314-cp314-manylinux_2_17_x86_64",
-      "connected_engine": "3.50.4"
-    },
-    {
       "runner": "windows-2025",
-      "resolution": "locked",
+      "resolution": "canonical",
       "lockfile": "pdm.lock",
       "artifact": {
         "id": 8301314170,
         "name": "driver-platform-windows-2025-locked",
         "digest": "sha256:af9db978426fa61f5bf010f76173383f99084bde9e5dd9229bf75ad293dcd353"
-      },
-      "platform": {"system": "Windows", "machine": "AMD64"},
-      "python": "3.14.6",
-      "django": "6.0.7",
-      "pyturso": "0.6.1",
-      "pyturso_wheel": "cp314-cp314-win_amd64",
-      "connected_engine": "3.50.4"
-    },
-    {
-      "runner": "windows-2025",
-      "resolution": "minimum",
-      "lockfile": "pdm.min.lock",
-      "artifact": {
-        "id": 8301312683,
-        "name": "driver-platform-windows-2025-minimum",
-        "digest": "sha256:98b6478c38f95cda8769851183342b6b66f4375cbb58d3f8a7f1d3660afd167b"
       },
       "platform": {"system": "Windows", "machine": "AMD64"},
       "python": "3.14.6",

@@ -19,11 +19,8 @@ jobs:
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
-            - name: Verify every committed resolution
-              run: |
-                  pdm lock --check
-                  pdm lock --check --lockfile pdm.min.lock
-                  pdm lock --check --lockfile pdm.latest.lock
+            - name: Verify the canonical lock
+              run: pdm lock --check
 
     dependency-review:
         name: Runtime dependency review
@@ -37,18 +34,12 @@ jobs:
                   config-file: ./.github/dependency-review-config.yml
 
     quality:
-        name: Quality (${{ matrix.os }}, ${{ matrix.resolution }})
+        name: Quality (${{ matrix.os }})
         runs-on: ${{ matrix.os }}
         strategy:
             fail-fast: false
             matrix:
                 os: [macos-15, ubuntu-24.04, windows-2025]
-                resolution: [locked, minimum]
-                include:
-                    - resolution: locked
-                      lockfile: pdm.lock
-                    - resolution: minimum
-                      lockfile: pdm.min.lock
         steps:
             - uses: actions/checkout@v7
             - uses: actions/setup-python@v6
@@ -57,9 +48,9 @@ jobs:
             - uses: pdm-project/setup-pdm@v4
               with:
                   cache: true
-                  cache-dependency-path: ${{ matrix.lockfile }}
-            - name: Install the selected resolution
-              run: pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
+                  cache-dependency-path: pdm.lock
+            - name: Install the canonical resolution
+              run: pdm sync -G dev --clean
             - name: Record environment
               run: pdm list --freeze
             - name: Run the canonical local gate
@@ -72,7 +63,7 @@ jobs:
             - name: Upload driver/platform evidence
               uses: actions/upload-artifact@v7
               with:
-                  name: driver-platform-${{ matrix.os }}-${{ matrix.resolution }}
+                  name: driver-platform-${{ matrix.os }}
                   path: driver-platform.json
 
     review-metadata:

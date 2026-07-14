@@ -15,10 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "artifacts" / "release" / "evidence.json"
 REMOTE_PLATFORM_MATRIX = ROOT / "docs" / "design" / "evidence" / "remote-platform-matrix.json"
 REQUIRED_REMOTE_CELLS = {
-    ("ubuntu-24.04", "locked", "pdm.lock", "Linux", "x86_64"),
-    ("ubuntu-24.04", "minimum", "pdm.min.lock", "Linux", "x86_64"),
-    ("windows-2025", "locked", "pdm.lock", "Windows", "AMD64"),
-    ("windows-2025", "minimum", "pdm.min.lock", "Windows", "AMD64"),
+    ("ubuntu-24.04", "canonical", "pdm.lock", "Linux", "x86_64"),
+    ("windows-2025", "canonical", "pdm.lock", "Windows", "AMD64"),
 }
 
 
@@ -131,9 +129,7 @@ def build_document() -> dict[str, Any]:
         "package": {"name": "django-pyturso", "version": version},
         "release_eligible": not (ROOT / "IMPLEMENTATION_PLAN.md").exists(),
         "artifacts": _relative_hashes([*artifacts, DIST / "sbom.cdx.json"]),
-        "locks": _relative_hashes(
-            [ROOT / "pdm.lock", ROOT / "pdm.min.lock", ROOT / "pdm.latest.lock"]
-        ),
+        "locks": _relative_hashes([ROOT / "pdm.lock"]),
         "coverage": {
             "percent_covered": coverage["totals"]["percent_covered"],
             "num_statements": coverage["totals"]["num_statements"],

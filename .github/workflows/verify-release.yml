@@ -152,7 +152,7 @@ jobs:
                     | xargs -0 shasum -a 256 > "$sums_file"
                   mv "$sums_file" SHA256SUMS
             - name: Attest exact release artifacts
-              uses: actions/attest-build-provenance@v3
+              uses: actions/attest-build-provenance@v4
               with:
                   subject-path: |
                       dist/*.whl

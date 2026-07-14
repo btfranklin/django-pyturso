@@ -86,13 +86,11 @@ candidate preparation can write draft-release assets and attestations, and the
 publication job can request a PyPI identity token. Pull-request tests receive no
 publication secret or write permission.
 
-Every third-party action reference uses a human-readable major release tag such
-as `v7` or `v3`; minor, patch, and commit SHA pins are forbidden. The sole
-exception is `pypa/gh-action-pypi-publish@release/v1`: PyPA does not publish a
-`v1` tag and documents `release/v1` as its maintained major-line channel.
-Dependabot proposes GitHub Actions updates for review. CodeQL scans the Python
-and workflow source on pull requests, default-branch pushes, and a weekly
-schedule.
+Every third-party action reference uses a human-readable major release channel
+such as `v7`, `v3`, or PyPA's documented `release/v1`; minor, patch, and commit
+SHA pins are forbidden. Dependabot proposes GitHub Actions updates for review.
+CodeQL scans the Python and workflow source on pull requests, default-branch
+pushes, and a weekly schedule.
 
 The tag workflow refuses to proceed while `IMPLEMENTATION_PLAN.md` exists. It
 requires locked/minimum platform checks on macOS, Linux, and Windows, a Linux
@@ -101,8 +99,6 @@ asset-building job can create a draft release. The final artifact check binds
 wheel and sdist metadata to each other and to the signed tag version. Preparing
 this workflow locally does not execute it or publish anything.
 
-Before a published release can reach the Trusted Publishing step, the publish
-workflow verifies the downloaded wheel and sdist attestations against this
-repository, the release-candidate workflow identity, the signed tag ref, and
-the checked-out commit digest. Hash verification alone is not treated as build
-provenance.
+After a GitHub Release is published, the publication job checks out that release,
+builds the package with PDM, and uses Trusted Publishing's release-environment
+identity token to upload the resulting distributions to PyPI.

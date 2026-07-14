@@ -49,11 +49,16 @@ pdm run security-test
 ## Dependency policy
 
 Pull requests use GitHub dependency review for runtime dependency changes.
-High and critical vulnerabilities fail that gate. Runtime licenses must match
-the SPDX allowlist in `.github/dependency-review-config.yml`. GitHub dependency
-review applies the allowlist to dependency changes, while the local validator
-walks the installed production dependency graph and rejects unknown or
-unapproved metadata. Release verification uses the committed PDM lock through:
+GitHub's Dependency Graph is enabled for this repository because that is a
+prerequisite for the review gate. High and critical vulnerabilities fail that
+gate. Runtime licenses must match the SPDX allowlist in
+`.github/dependency-review-config.yml`. GitHub dependency review applies the
+allowlist to dependency changes, while the local validator walks the installed
+production dependency graph and rejects unknown or unapproved metadata.
+Dependabot pull requests are exempt only from the human-authored review
+classification and tested-commit fields; they still run every quality and
+dependency-review check. Release verification uses the committed PDM lock
+through:
 
 ```console
 pdm run audit

@@ -20,6 +20,7 @@ REQUIRED_MAJOR_FIELDS = {
 REQUIRED_STRUCTURAL_FIELDS = {
     "Structural clarity review report and reviewed commit",
 }
+DEPENDABOT_LOGINS = {"app/dependabot", "dependabot[bot]"}
 
 
 def _fields(body: str) -> dict[str, str]:
@@ -61,14 +62,15 @@ def validate(body: str, head_sha: str) -> list[str]:
     return errors
 
 
-def _event(path: Path) -> tuple[str, str] | None:
+def _event(path: Path) -> tuple[str, str, str] | None:
     event: dict[str, Any] = json.loads(path.read_text())
     pull_request = event.get("pull_request")
     if not isinstance(pull_request, dict):
         return None
     body = pull_request.get("body") or ""
     head = pull_request.get("head") or {}
-    return str(body), str(head.get("sha") or "")
+    author = pull_request.get("user") or {}
+    return str(body), str(head.get("sha") or ""), str(author.get("login") or "")
 
 
 def main() -> int:
@@ -82,7 +84,11 @@ def main() -> int:
     if event is None:
         print("Review metadata validation skipped for a non-pull-request event.")
         return 0
-    errors = validate(*event)
+    body, head_sha, author_login = event
+    if author_login in DEPENDABOT_LOGINS:
+        print("Review metadata validation skipped for Dependabot pull request.")
+        return 0
+    errors = validate(body, head_sha)
     if errors:
         print("Review metadata validation failed:", file=sys.stderr)
         for error in errors:

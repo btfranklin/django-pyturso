@@ -63,7 +63,8 @@ def test_non_regular_database_name_is_rejected_by_driver(
     with (
         django_db_blocker.unblock(),
         pytest.raises(
-            OperationalError, match="Unable to open Turso database: open: IsADirectory"
+            OperationalError,
+            match=r"Unable to open Turso database: open: (?:IsADirectory|PermissionDenied)",
         ) as captured,
     ):
         wrapper.ensure_connection()

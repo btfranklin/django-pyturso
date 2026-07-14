@@ -39,6 +39,9 @@ jobs:
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
+              with:
+                  cache: true
+                  cache-dependency-path: ${{ matrix.lockfile }}
             - name: Install the selected resolution
               run: pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
             - name: Record environment

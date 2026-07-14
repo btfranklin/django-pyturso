@@ -16,7 +16,6 @@ from django.db import DatabaseError, IntegrityError, NotSupportedError, Operatio
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.transaction import TransactionManagementError
 from django.utils.asyncio import async_unsafe
-from django.utils.regex_helper import _lazy_re_compile
 
 from .client import DatabaseClient
 from .creation import DatabaseCreation
@@ -25,8 +24,9 @@ from .introspection import DatabaseIntrospection
 from .operations import DatabaseOperations
 from .schema import DatabaseSchemaEditor
 
-# Field mappings, operators, and cursor placeholder conversion are adapted
-# from Django 6.0.7's SQLite backend. See docs/design/django-provenance.md.
+# Field mappings and operators are adapted from Django 6.0.7's SQLite backend.
+# Placeholder conversion deliberately uses a local SQL-aware implementation.
+# See docs/design/django-provenance.md.
 
 
 def _get_varchar_column(data: Mapping[str, Any]) -> str:
@@ -470,7 +470,116 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         super().inc_thread_sharing()
 
 
-FORMAT_QMARK_REGEX = _lazy_re_compile(r"(?<!%)%s")
+_IDENTIFIER_QUOTES = {'"': '"', "`": "`", "[": "]"}
+
+
+def _convert_placeholders(query: str, *, param_names: list[str] | None) -> str:
+    """Translate Django placeholders without interpreting quoted SQL text."""
+    converted: list[str] = []
+    names = set(param_names) if param_names is not None else None
+    index = 0
+    state = "sql"
+    closing_quote = ""
+
+    while index < len(query):
+        character = query[index]
+        following = query[index + 1] if index + 1 < len(query) else ""
+
+        if state == "line-comment":
+            converted.append(character)
+            index += 1
+            if character in "\r\n":
+                state = "sql"
+            continue
+
+        if state == "block-comment":
+            if character == "*" and following == "/":
+                converted.append("*/")
+                index += 2
+                state = "sql"
+            else:
+                converted.append(character)
+                index += 1
+            continue
+
+        if state == "identifier":
+            converted.append(character)
+            index += 1
+            if character != closing_quote:
+                continue
+            if closing_quote != "]" and following == closing_quote:
+                converted.append(following)
+                index += 1
+            else:
+                state = "sql"
+            continue
+
+        if state == "literal":
+            if character == "'" and following == "'":
+                converted.append("''")
+                index += 2
+            elif character == "'":
+                converted.append(character)
+                index += 1
+                state = "sql"
+            elif character == "%" and following == "%":
+                converted.append("%")
+                index += 2
+            else:
+                converted.append(character)
+                index += 1
+            continue
+
+        if character == "-" and following == "-":
+            converted.append("--")
+            index += 2
+            state = "line-comment"
+        elif character == "/" and following == "*":
+            converted.append("/*")
+            index += 2
+            state = "block-comment"
+        elif character == "'":
+            converted.append(character)
+            index += 1
+            state = "literal"
+        elif character in _IDENTIFIER_QUOTES:
+            converted.append(character)
+            index += 1
+            state = "identifier"
+            closing_quote = _IDENTIFIER_QUOTES[character]
+        elif character == "%" and following == "%":
+            converted.append("%")
+            index += 2
+        elif names is None and character == "%" and following == "s":
+            converted.append("?")
+            index += 2
+        elif names is not None and character == "%" and following == "(":
+            placeholder_end = index + 2
+            while placeholder_end < len(query) and query[placeholder_end] != ")":
+                if query[placeholder_end : placeholder_end + 2] == "%(":
+                    break
+                placeholder_end += 1
+            if placeholder_end == len(query):
+                converted.append(query[index:])
+                break
+            if query[placeholder_end : placeholder_end + 2] == "%(":
+                converted.append(query[index:placeholder_end])
+                index = placeholder_end
+                continue
+            if query[placeholder_end + 1 : placeholder_end + 2] != "s":
+                converted.append(query[index : placeholder_end + 1])
+                index = placeholder_end + 1
+                continue
+            name = query[index + 2 : placeholder_end]
+            if name not in names:
+                raise KeyError(name)
+            converted.append(f":{name}")
+            index = placeholder_end + 2
+        else:
+            converted.append(character)
+            index += 1
+
+    return "".join(converted)
 
 
 class TursoCursorWrapper(Database.Cursor):
@@ -499,6 +608,4 @@ class TursoCursorWrapper(Database.Cursor):
 
     @staticmethod
     def convert_query(query: str, *, param_names: list[str] | None = None) -> str:
-        if param_names is None:
-            return FORMAT_QMARK_REGEX.sub("?", query).replace("%%", "%")
-        return query % {name: f":{name}" for name in param_names}
+        return _convert_placeholders(query, param_names=param_names)

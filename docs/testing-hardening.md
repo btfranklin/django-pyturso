@@ -78,6 +78,13 @@ This is a recorded engine/driver boundary, not evidence that arbitrary Unicode
 case variants round-trip. It must be re-probed before widening identifier
 claims.
 
+Deterministic cases supplement that generated corpus with quoted identifiers
+containing `%s`, `%%`, and `%(name)s`. They run through parameterless schema
+creation, positional execution, named execution, and `executemany()` so
+placeholder-shaped identifier text cannot consume, create, or redirect a bound
+value. Focused lexical cases cover SQL string literals, doubled quote
+delimiters, line comments, and block comments.
+
 Run them with:
 
 ```console

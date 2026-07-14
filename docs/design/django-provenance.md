@@ -12,7 +12,7 @@ commit before adaptation.
 
 | Local component | Upstream reference | Disposition |
 | --- | --- | --- |
-| `base.py` mappings and cursor placeholder conversion | `django/db/backends/sqlite3/base.py`, `_get_varchar_column`, `DatabaseWrapper` constants, `SQLiteCursorWrapper` | Substantially adapted; Turso connection, settings, transactions, and lifecycle implemented locally |
+| `base.py` mappings and cursor placeholder conversion | `django/db/backends/sqlite3/base.py`, `_get_varchar_column`, `DatabaseWrapper` constants, `SQLiteCursorWrapper` | Substantially adapted; Turso connection, settings, transactions, and lifecycle implemented locally; placeholder conversion uses a local SQL-aware scanner because Django's context-blind SQLite conversion rewrites placeholder-shaped quoted identifiers |
 | `operations.py` conversions, conflicts, and JSON index formatting | `django/db/backends/sqlite3/operations.py`, corresponding `DatabaseOperations` methods | Substantially adapted; unavailable Python UDF paths excluded or reimplemented with native SQL |
 | `features.py` | `django/db/backends/base/features.py` and `django/db/backends/sqlite3/features.py` | Independently dispositioned against Turso evidence; no SQLite skips or expected failures copied |
 | `introspection.py` | `django/db/backends/sqlite3/introspection.py`, `FieldInfo`, `FlexibleFieldLookupDict`, and `DatabaseIntrospection` | Substantially adapted and verified against Turso `sqlite_master`, `table_xinfo`, `table_info`, `foreign_key_list`, `index_list`, and `index_xinfo`; composite keys and Turso expression-index metadata are handled locally |
@@ -22,6 +22,21 @@ commit before adaptation.
 No runtime module imports Django's SQLite backend or Python's `sqlite3` module.
 No code from Django's `_functions.py`, expected-failure lists, skip lists, or
 pre-Django-6 compatibility branches is used.
+
+### Cursor-conversion departure
+
+Django's SQLite cursor conversion applies placeholder substitution to the
+complete SQL string. That can reinterpret `%s`, `%%`, or `%(name)s` inside a
+quoted table or column name when the same statement has bound parameters. The
+local cursor instead performs one linear lexical pass over SQLite/Turso SQL. It
+converts positional and named placeholders only in executable SQL, preserves
+double-quoted, backtick-quoted, and bracket-quoted identifiers and comments,
+handles doubled quote delimiters, and retains Django's `%%` literal-percent
+convention in executable SQL and single-quoted literals.
+
+This is an intentional correctness and parameter-boundary departure, not a
+claim that arbitrary SQL is rewritten or normalized. Malformed or unsupported
+SQL remains the driver's responsibility.
 
 ### Introspection departures
 

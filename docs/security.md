@@ -31,7 +31,10 @@ untrusted request.
 Django values are passed as bound parameters. Tests include quote-, comment-,
 statement-, wildcard-, and literal-percent-shaped inputs, mapping parameters,
 `executemany()`, regular-expression patterns, and identifiers quoted from model
-metadata. FTS5 is not exposed by the audited embedded engine, so v1 has no FTS
+metadata. Placeholder conversion is lexical rather than a whole-string regular
+expression: executable placeholders are translated while quoted identifiers,
+comments, and placeholder-shaped literal text cannot create or consume a
+binding. FTS5 is not exposed by the audited embedded engine, so v1 has no FTS
 query-input API; it must receive a new security review before support is added.
 
 AST-based architecture tests scan only runtime Python syntax. They reject the

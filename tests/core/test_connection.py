@@ -95,3 +95,78 @@ def test_cursor_parameter_conversion() -> None:
         TursoCursorWrapper.convert_query("SELECT %(value)s", param_names=["value"])
         == "SELECT :value"
     )
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            'INSERT INTO "%s" ("%%") VALUES (%s)',
+            'INSERT INTO "%s" ("%%") VALUES (?)',
+        ),
+        (
+            "SELECT '%s', 'it''s %%', %s",
+            "SELECT '%s', 'it''s %', ?",
+        ),
+        (
+            "SELECT 'prefix_%s', status, %s / 2, 2 * %s",
+            "SELECT 'prefix_%s', status, ? / 2, 2 * ?",
+        ),
+        (
+            "SELECT `%s`, [%%], \"escaped\"\"%s\", %s",
+            "SELECT `%s`, [%%], \"escaped\"\"%s\", ?",
+        ),
+        (
+            'SELECT "prefix_%s", `prefix_%s`, [prefix_%s], %s',
+            'SELECT "prefix_%s", `prefix_%s`, [prefix_%s], ?',
+        ),
+        (
+            "SELECT %s -- %s and %%\r\n, %s /* * / %s and %% */ , %s",
+            "SELECT ? -- %s and %%\r\n, ? /* * / %s and %% */ , ?",
+        ),
+        ("SELECT %%%% AS remainder, %%%s", "SELECT %% AS remainder, %?"),
+    ],
+)
+def test_positional_conversion_respects_sql_lexical_boundaries(
+    query: str, expected: str
+) -> None:
+    assert TursoCursorWrapper.convert_query(query) == expected
+
+
+def test_named_conversion_respects_sql_lexical_boundaries() -> None:
+    query = (
+        'SELECT "%(value)s", `%s`, [%%], \'%(value)s %%\', %(value)s '
+        "-- %(value)s\n/* %(value)s */"
+    )
+    expected = (
+        'SELECT "%(value)s", `%s`, [%%], \'%(value)s %\', :value '
+        "-- %(value)s\n/* %(value)s */"
+    )
+
+    assert TursoCursorWrapper.convert_query(query, param_names=["value"]) == expected
+    with pytest.raises(KeyError, match="missing"):
+        TursoCursorWrapper.convert_query("SELECT %(missing)s", param_names=["value"])
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ('SELECT "unterminated %s', 'SELECT "unterminated %s'),
+        ("SELECT 'unterminated %s %%", "SELECT 'unterminated %s %"),
+        ("SELECT 1 /* unterminated %s %%", "SELECT 1 /* unterminated %s %%"),
+        ("SELECT %(broken)q, %(value", "SELECT %(broken)q, %(value"),
+    ],
+)
+def test_conversion_does_not_bind_unterminated_sql_regions(
+    query: str, expected: str
+) -> None:
+    assert TursoCursorWrapper.convert_query(query, param_names=["value"]) == expected
+
+
+def test_malformed_named_placeholder_does_not_consume_a_later_binding() -> None:
+    query = "SELECT %(broken)q, %(outer %(value)s"
+
+    assert (
+        TursoCursorWrapper.convert_query(query, param_names=["value"])
+        == "SELECT %(broken)q, %(outer :value"
+    )

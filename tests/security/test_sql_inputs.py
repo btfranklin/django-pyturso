@@ -12,8 +12,11 @@ def test_bound_values_and_literal_percent_are_never_sql_text(django_db_blocker: 
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute("CREATE TABLE security_values (value text)")
         cursor.execute("INSERT INTO security_values(value) VALUES (%s)", (payload,))
-        cursor.execute("SELECT %s, '100%%'", (payload,))
-        assert cursor.fetchone() == (payload, "100%")
+        cursor.execute(
+            "SELECT %s, '100%%', '%s' /* %s / * stays inert */, %s -- %s\n, %s",
+            (payload, "after-block", "after-line"),
+        )
+        assert cursor.fetchone() == (payload, "100%", "%s", "after-block", "after-line")
         cursor.execute("SELECT value FROM security_values")
         assert cursor.fetchone() == (payload,)
 
@@ -21,18 +24,22 @@ def test_bound_values_and_literal_percent_are_never_sql_text(django_db_blocker: 
 @pytest.mark.core
 def test_named_parameters_and_executemany_remain_bound(django_db_blocker: Any) -> None:
     values = ["plain", "x'); DELETE FROM security_named; --", "100%_literal"]
+    table_name = "security_named_%s_%%"
+    column_name = "value_%(value)s_%s_%%"
+    quote = connection.ops.quote_name
     with django_db_blocker.unblock(), connection.cursor() as cursor:
-        cursor.execute("CREATE TABLE security_named (value text)")
+        cursor.execute(f"CREATE TABLE {quote(table_name)} ({quote(column_name)} text)")
         cursor.executemany(
-            "INSERT INTO security_named(value) VALUES (%(value)s)",
+            f"INSERT INTO {quote(table_name)}({quote(column_name)}) VALUES (%(value)s)",
             [{"value": value} for value in values],
         )
         cursor.execute(
-            "SELECT value FROM security_named WHERE value = %(value)s",
+            f"SELECT {quote(column_name)} FROM {quote(table_name)} "
+            f"WHERE {quote(column_name)} = %(value)s",
             {"value": values[1]},
         )
         assert cursor.fetchone() == (values[1],)
-        cursor.execute("SELECT COUNT(*) FROM security_named")
+        cursor.execute(f"SELECT COUNT(*) FROM {quote(table_name)}")
         assert cursor.fetchone() == (3,)
 
 

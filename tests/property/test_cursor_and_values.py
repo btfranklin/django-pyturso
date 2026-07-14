@@ -8,7 +8,7 @@ from itertools import count
 from typing import Any, cast
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from django_pyturso.base import DatabaseWrapper, TursoCursorWrapper
@@ -55,7 +55,9 @@ def memory_wrapper() -> Iterator[DatabaseWrapper]:
 
 
 format_literal = st.text(
-    alphabet=st.characters(blacklist_characters="%"),
+    # Lexical boundaries have focused examples below; keep this composition
+    # property from accidentally constructing an unterminated SQL token.
+    alphabet=st.characters(blacklist_characters="%\"'`[]-/*"),
     max_size=12,
 )
 format_segment = st.one_of(st.just("%s"), st.just("%%"), format_literal)
@@ -123,6 +125,7 @@ def test_public_cursor_round_trips_driver_scalars(value: object) -> None:
 
 @PROPERTY_SETTINGS
 @given(table_name=identifier, column_name=identifier)
+@example(table_name="table_%s_%%", column_name="column_%(value)s_%s_%%")
 def test_quoted_unicode_identifiers_round_trip(
     table_name: str, column_name: str
 ) -> None:

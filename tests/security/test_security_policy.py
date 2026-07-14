@@ -58,6 +58,17 @@ def test_repository_security_policy_is_valid() -> None:
     validate_security.validate_workflows()
 
 
+def test_dependabot_auto_merge_enrolls_only_dependabot_without_checkout() -> None:
+    workflow = (
+        Path(__file__).parents[2] / ".github" / "workflows" / "dependabot-auto-merge.yml"
+    ).read_text(encoding="utf-8")
+    assert "pull_request_target:" in workflow
+    assert "app/dependabot" in workflow
+    assert "dependabot[bot]" in workflow
+    assert 'gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash' in workflow
+    assert "actions/checkout" not in workflow
+
+
 def test_workflow_policy_accepts_human_readable_action_versions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

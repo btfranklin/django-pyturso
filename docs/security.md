@@ -97,6 +97,13 @@ SHA pins are forbidden. Dependabot proposes GitHub Actions updates for review.
 CodeQL scans the Python and workflow source on pull requests, default-branch
 pushes, and a weekly schedule.
 
+`main` requires the complete quality matrix, dependency review, review metadata,
+and CodeQL for non-administrator pull requests. Administrators retain the
+direct-maintenance bypass. A trusted workflow with no pull-request checkout
+enrolls only Dependabot-authored pull requests in squash auto-merge; the branch
+rule prevents that merge until every required check succeeds. GitHub then
+automatically deletes the merged head branch.
+
 The tag workflow refuses to proceed while `IMPLEMENTATION_PLAN.md` exists. It
 requires locked/minimum platform checks on macOS, Linux, and Windows, a Linux
 newest-compatible check, and the complete deep verification job before the

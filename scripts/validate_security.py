@@ -17,6 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 EXCEPTIONS_PATH = ROOT / "tests" / "manifests" / "security-exceptions.toml"
 DEPENDENCY_REVIEW_PATH = ROOT / ".github" / "dependency-review-config.yml"
 WORKFLOW_ROOT = ROOT / ".github" / "workflows"
+WRITE_CONTENTS_WORKFLOWS = {
+    "create-draft-release.yml",
+    "dependabot-auto-merge.yml",
+}
 
 REQUIRED_EXCEPTION_FIELDS = {
     "package",
@@ -174,9 +178,7 @@ def validate_workflows() -> None:
         raise ValueError("no GitHub workflows found")
     for path in workflows:
         text = path.read_text()
-        expected_contents_permission = (
-            "write" if path.name == "create-draft-release.yml" else "read"
-        )
+        expected_contents_permission = "write" if path.name in WRITE_CONTENTS_WORKFLOWS else "read"
         if f"permissions:\n    contents: {expected_contents_permission}" not in text:
             raise ValueError(
                 f"{path.name} must default to contents: {expected_contents_permission}"
@@ -201,6 +203,20 @@ def validate_workflows() -> None:
                 raise ValueError("pull-request workflow must run dependency review")
         if path.name == "codeql.yml" and "language: [python, actions]" not in text:
             raise ValueError("CodeQL must scan both Python and GitHub Actions workflows")
+        if path.name == "dependabot-auto-merge.yml":
+            required = (
+                "pull_request_target:",
+                "pull-requests: write",
+                "github.event.pull_request.user.login == 'app/dependabot'",
+                "github.event.pull_request.user.login == 'dependabot[bot]'",
+                'gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash',
+            )
+            if any(fragment not in text for fragment in required):
+                raise ValueError(
+                    "Dependabot auto-merge must remain a narrow, trusted enrollment workflow"
+                )
+            if "actions/checkout" in text:
+                raise ValueError("Dependabot auto-merge must not check out pull-request code")
 
 
 def main() -> None:

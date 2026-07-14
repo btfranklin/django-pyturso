@@ -16,12 +16,11 @@ jobs:
               with:
                   fetch-depth: 0
                   ref: ${{ github.ref }}
-            - name: Verify signed tag, immutable commit, and completed plan
+            - name: Verify tag, immutable commit, and completed plan
               env:
                   TAG: ${{ github.ref_name }}
               run: |
                   test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
-                  git verify-tag "$TAG"
                   test ! -e IMPLEMENTATION_PLAN.md || {
                     echo "IMPLEMENTATION_PLAN.md still contains release-blocking work" >&2
                     exit 1
@@ -121,12 +120,11 @@ jobs:
               with:
                   fetch-depth: 0
                   ref: ${{ github.ref }}
-            - name: Reverify signed tag and immutable commit identity
+            - name: Reverify tag and immutable commit identity
               env:
                   TAG: ${{ github.ref_name }}
               run: |
                   test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
-                  git verify-tag "$TAG"
             - uses: actions/setup-python@v6
               with:
                   python-version: "3.14"

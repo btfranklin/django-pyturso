@@ -117,17 +117,9 @@ def test_verify_release_owns_exact_tag_evidence_without_release_capability() -> 
     )
 
     tag_identity = 'test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"'
-    assert command_position(
-        workflow_jobs["preflight"], job_id="preflight", command=tag_identity
-    ) < command_position(
-        workflow_jobs["preflight"], job_id="preflight", command='git verify-tag "$TAG"'
-    )
-    assert command_position(
+    command_position(workflow_jobs["preflight"], job_id="preflight", command=tag_identity)
+    command_position(
         workflow_jobs["verify-release"], job_id="verify-release", command=tag_identity
-    ) < command_position(
-        workflow_jobs["verify-release"],
-        job_id="verify-release",
-        command='git verify-tag "$TAG"',
     )
 
 

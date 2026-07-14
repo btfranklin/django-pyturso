@@ -1,12 +1,12 @@
 # Releasing
 
 Releases use three deliberately separate GitHub Actions workflows. Draft
-creation and verification start independently from the same signed version tag;
+creation and verification start independently from the same version tag;
 neither workflow owns, invokes, waits for, or delays the other.
 
 ## Parallel same-tag preparation
 
-Push a signed semantic version tag matching `v*.*.*`. That single tag push
+Push a semantic version tag matching `v*.*.*`. That single tag push
 starts both preparation workflows:
 
 - `create-draft-release.yml` creates the GitHub draft release and generated
@@ -43,7 +43,7 @@ The parsed workflow-policy tests enforce:
 - no trigger or dependency edge between those two workflows;
 - exact job ownership and permission scope for draft creation, verification,
   attestation, and PyPI publication;
-- tag/commit verification and meaningful command ordering inside verification;
+- tag/commit identity verification and meaningful command ordering inside verification;
 - no release-creation permission, action, command, or secret in verification;
   and
 - the exact `release.published` publication trigger.

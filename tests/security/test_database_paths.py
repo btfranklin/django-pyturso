@@ -73,8 +73,12 @@ def test_non_regular_database_name_is_rejected_by_driver(
     assert wrapper.connection is None
 
 
+_geteuid = getattr(os, "geteuid", None)
+_is_posix_root = os.name == "posix" and callable(_geteuid) and _geteuid() == 0
+
+
 @pytest.mark.core
-@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="POSIX permission probe")
+@pytest.mark.skipif(os.name != "posix" or _is_posix_root, reason="POSIX permission probe")
 def test_permission_failure_does_not_leave_a_connection(
     tmp_path: Path, django_db_blocker: Any
 ) -> None:

@@ -15,7 +15,7 @@ permissions. Tests cover traversal-shaped relative names, symlinks,
 non-regular paths, and permission failures, including cleanup after a failed
 open.
 
-The audited `pyturso` 0.6.1 release reports directory and permission open
+The audited `pyturso` 0.7.0 release reports directory and permission open
 failures as an extension `turso.IoError` outside its PEP 249 exception
 hierarchy. The backend translates only that confirmed driver defect to Django
 `OperationalError`, retains the driver error as the exception cause, and leaves

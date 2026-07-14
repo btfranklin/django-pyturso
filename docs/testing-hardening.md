@@ -71,8 +71,8 @@ handling, public cursor round trips for DB-API scalar values, quoted Unicode
 identifier round trips, and a reference model for manual commit/rollback/read/
 write sequences with lazy transaction re-arming.
 
-The identifier corpus is Unicode but casefold-stable. The minimum `pyturso`
-0.6.1/Turso 3.50.4 cell rejects a later reference to a quoted uppercase
+The identifier corpus is Unicode but casefold-stable. The canonical `pyturso`
+0.7.0/Turso 3.50.4 cell rejects a later reference to a quoted uppercase
 non-ASCII identifier such as `"À"` after normalizing the reference to `à`.
 This is a recorded engine/driver boundary, not evidence that arbitrary Unicode
 case variants round-trip. It must be re-probed before widening identifier

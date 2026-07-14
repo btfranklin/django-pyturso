@@ -65,7 +65,7 @@ def test_regexp_input_is_bound_and_fts_is_not_an_exposed_surface(django_db_block
 
 @pytest.mark.core
 def test_metadata_identifiers_are_quoted_as_single_identifiers(django_db_blocker: Any) -> None:
-    # Keep the corpus casefold-stable because pyturso 0.6.1 normalizes quoted
+    # Keep the corpus casefold-stable because pyturso 0.7.0 normalizes quoted
     # identifiers; that separate driver boundary is documented and probed by
     # the property suite.
     table_name = 'metadata"; create table injected(value); --'

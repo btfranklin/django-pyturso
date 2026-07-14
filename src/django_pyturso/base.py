@@ -157,7 +157,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         try:
             connection = Database.connect(**conn_params)
         except Exception as error:
-            # pyturso 0.6.1 raises an extension `turso.IoError` outside its
+            # pyturso 0.7.0 raises an extension `turso.IoError` outside its
             # exported PEP 249 hierarchy for database-open failures. It can't
             # pass through Django's normal DatabaseErrorWrapper, so translate
             # only that audited driver defect at the connection boundary.

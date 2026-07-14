@@ -20,7 +20,7 @@ lanes. The local release-verification preparation is complete; publication and
 remote deployment remain separate, explicitly authorized operations.
 
 The v1 contract intentionally excludes writing non-NULL Django `BinaryField`
-values because the stable `pyturso` 0.6 line does not expose the required PEP
+values because the stable `pyturso` 0.7 line does not expose the required PEP
 249 `Binary()` constructor. The backend deliberately does not patch or wrap the
 real `turso` module. See the compatibility document before evaluating the
 package.

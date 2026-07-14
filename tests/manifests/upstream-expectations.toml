@@ -217,7 +217,7 @@ profile = "smoke"
 outcome = "skip"
 relevance = "Exercises adding a field through Django's schema editor."
 reason_code = "UPSTREAM-INTENTIONAL-SCHEMA-REMAKE-NULLABLE-ADD"
-reason = "Turso 0.6.1 stores ALTER TABLE ADD COLUMN ... NULL as NOT NULL, so the backend intentionally remakes the table; this conflicts only with the test's SQLite-specific no-CREATE-TABLE assertion."
+reason = "Turso 0.7.0 stores ALTER TABLE ADD COLUMN ... NULL as NOT NULL, so the backend intentionally remakes the table; this conflicts only with the test's SQLite-specific no-CREATE-TABLE assertion."
 
 [[expectation]]
 label = "schema.tests.SchemaTests.test_alter"

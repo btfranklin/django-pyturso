@@ -9,7 +9,7 @@ ordinary ORM against representative scalar fields.
 
 ## Intentional BinaryField exclusion
 
-`pyturso` 0.6.1 does not expose the PEP 249 `Binary()` constructor. Django's
+`pyturso` 0.7.0 does not expose the PEP 249 `Binary()` constructor. Django's
 `BinaryField.get_db_prep_value()` calls `connection.Database.Binary()` before a
 database backend operation hook can adapt the value. Therefore writes of
 non-NULL `BinaryField` values are intentionally outside v1 while retaining the rules
@@ -20,13 +20,12 @@ Creating and introspecting `BinaryField` columns and storing `NULL` remain in
 scope. Writing a binary payload does not. Applications that require binary
 payload storage must not use this backend for that field in v1.
 
-A research-only isolated PDM probe of `pyturso` 0.7.0rc22 on 2026-07-13 also
-found no top-level `turso.Binary`; that prerelease remains outside the audited
-support range and does not change the v1 exclusion.
+The audited 0.7.0 release likewise has no top-level `turso.Binary`, so the v1
+exclusion remains in force.
 
 ## Driver I/O exception defect
 
-`pyturso` 0.6.1 raises an extension `turso.IoError` for directory and
+`pyturso` 0.7.0 raises an extension `turso.IoError` for directory and
 permission-denied database opens, but that class is outside the driver's
 exported PEP 249 exception hierarchy. Django's normal database-error wrapper
 therefore cannot recognize it. The backend translates only this audited

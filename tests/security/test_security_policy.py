@@ -163,7 +163,7 @@ def test_incomplete_security_exception_is_rejected(
 
 
 def test_sbom_is_bound_to_artifact_version_and_runtime_components() -> None:
-    expected_components = {"django": "6.0.7", "pyturso": "0.6.1"}
+    expected_components = {"django": "6.0.7", "pyturso": "0.7.0"}
     document: dict[str, Any] = {
         "bomFormat": "CycloneDX",
         "specVersion": "1.6",
@@ -177,7 +177,7 @@ def test_sbom_is_bound_to_artifact_version_and_runtime_components() -> None:
         },
         "components": [
             {"bom-ref": "django", "name": "Django", "version": "6.0.7"},
-            {"bom-ref": "pyturso", "name": "pyturso", "version": "0.6.1"},
+            {"bom-ref": "pyturso", "name": "pyturso", "version": "0.7.0"},
         ],
         "dependencies": [
             {"ref": "root", "dependsOn": ["django", "pyturso"]},

@@ -82,15 +82,15 @@ def _verify_archive(artifact: Path) -> Message:
             raise RuntimeError(f"{artifact.name} has incorrect Requires-Python")
         requirements = [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", [])]
         if not any(
-            value.startswith("Django") and ">=6.0.7" in value and "<7" in value
+            value.startswith("Django") and value == "Django>=6.0.7"
             for value in requirements
         ):
-            raise RuntimeError(f"{artifact.name} has incorrect Django bounds")
+            raise RuntimeError(f"{artifact.name} has incorrect Django requirement")
         if not any(
-            value.startswith("pyturso") and ">=0.6.1" in value and "<0.7" in value
+            value.startswith("pyturso") and value == "pyturso>=0.7.0"
             for value in requirements
         ):
-            raise RuntimeError(f"{artifact.name} has incorrect pyturso bounds")
+            raise RuntimeError(f"{artifact.name} has incorrect pyturso requirement")
     return _read_metadata(artifact)
 
 

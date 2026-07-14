@@ -64,7 +64,7 @@ def test_skip_is_an_explicit_intentional_difference() -> None:
             "relevance": "Exercises adding a field through Django's schema editor.",
             "reason_code": ADD_FIELD_DIFFERENCE,
             "reason": (
-                "Turso 0.6.1 stores ALTER TABLE ADD COLUMN ... NULL as NOT NULL, so the "
+                "Turso 0.7.0 stores ALTER TABLE ADD COLUMN ... NULL as NOT NULL, so the "
                 "backend intentionally remakes the table; this conflicts only with the test's "
                 "SQLite-specific no-CREATE-TABLE assertion."
             ),

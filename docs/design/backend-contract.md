@@ -4,8 +4,7 @@ This is the authoritative v1 product boundary for `django-pyturso`.
 
 ## Runtime and dependency boundary
 
-- CPython `>=3.14`, Django `>=6.0.7,<7`, and the audited
-  `pyturso>=0.6.1,<0.7` line.
+- CPython `>=3.14`, Django `>=6.0.7`, and audited `pyturso>=0.7.0`.
 - Synchronous connections opened only with the real top-level
   `turso.connect()` API supplied by `pyturso`.
 - Local filesystem paths and exactly `:memory:`. Relative paths, absolute paths,
@@ -46,7 +45,7 @@ are the executable detail behind this summary.
 
 ## Intentional differences and conservative rejections
 
-- `pyturso` 0.6.1 stores raw `ALTER TABLE ADD COLUMN ... NULL` as `NOT NULL`.
+- `pyturso` 0.7.0 stores raw `ALTER TABLE ADD COLUMN ... NULL` as `NOT NULL`.
   The schema editor therefore remakes the table to preserve Django nullability.
 - Named timezone conversion is rejected; database-side temporal operations are
   supported only without conversion or in UTC.
@@ -67,7 +66,7 @@ are the executable detail behind this summary.
 
 Writes of non-NULL `BinaryField` values are not supported in v1:
 `BinaryField.get_db_prep_value()` requires the PEP 249 `Database.Binary()`
-constructor, while the real top-level `turso` module in `pyturso` 0.6.1 does
+constructor, while the real top-level `turso` module in `pyturso` 0.7.0 does
 not provide it. The backend will not patch or wrap that module and will not add
 a compatibility field, compiler facade, or SQLite fallback.
 

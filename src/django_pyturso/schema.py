@@ -320,7 +320,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         elif isinstance(field, CompositePrimaryKey):
             return
         else:
-            # Turso 0.6.1 rewrites `ADD COLUMN ... NULL` as `NOT NULL` in the
+            # Turso 0.7.0 rewrites `ADD COLUMN ... NULL` as `NOT NULL` in the
             # stored schema. Remaking the table is required even for a plain
             # nullable field so Django's nullability contract remains true.
             self._remake_table(model, create_field=field)

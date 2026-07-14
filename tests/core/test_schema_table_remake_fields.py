@@ -45,8 +45,8 @@ def test_remake_preserves_composite_primary_key(
         pk = models.CompositePrimaryKey("tenant_id", "record_id")
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_composite"
+            app_label = "remake_schema"
+            db_table = "remake_composite"
 
     editor = _editor(monkeypatch)
 
@@ -66,8 +66,8 @@ def test_remake_new_primary_key_replaces_automatic_key_without_mutating_source(
         value = models.IntegerField()
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_new_primary"
+            app_label = "remake_schema"
+            db_table = "remake_new_primary"
 
     original_pk = Record._meta.pk
     replacement = models.IntegerField(default=7, primary_key=True)
@@ -95,8 +95,8 @@ def test_remake_new_primary_key_demotes_explicit_source_key(
         value = models.IntegerField()
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_explicit_primary"
+            app_label = "remake_schema"
+            db_table = "remake_explicit_primary"
 
     original_pk = Record._meta.pk
     replacement = models.IntegerField(default=7, primary_key=True)
@@ -122,8 +122,8 @@ def test_remake_altered_primary_key_remains_the_primary_key(
         value = models.IntegerField()
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_altered_primary"
+            app_label = "remake_schema"
+            db_table = "remake_altered_primary"
 
     old_field = Record._meta.get_field("key")
     new_field = models.BigIntegerField(primary_key=True)
@@ -149,8 +149,8 @@ def test_remake_altering_another_field_to_primary_key_demotes_the_old_key(
         replacement = models.IntegerField()
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_altered_replacement_primary"
+            app_label = "remake_schema"
+            db_table = "remake_altered_replacement_primary"
 
     old_field = Record._meta.get_field("replacement")
     new_field = models.BigIntegerField(primary_key=True)
@@ -178,8 +178,8 @@ def test_remake_renamed_field_replaces_body_and_maps_the_source_column(
         untouched = models.IntegerField()
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_rename"
+            app_label = "remake_schema"
+            db_table = "remake_rename"
 
     old_field = Record._meta.get_field("old_name")
     new_field = models.IntegerField()
@@ -197,8 +197,8 @@ def test_remake_renamed_field_replaces_body_and_maps_the_source_column(
     ]
     sql = _first_executed_sql(editor)
     assert (
-        'INSERT INTO "new__mutation_rename" ("id", "untouched", "new_name") '
-        'SELECT "id", "untouched", "old_name" FROM "mutation_rename"'
+        'INSERT INTO "new__remake_rename" ("id", "untouched", "new_name") '
+        'SELECT "id", "untouched", "old_name" FROM "remake_rename"'
     ) == sql
 
 
@@ -210,8 +210,8 @@ def test_remake_database_default_field_is_not_copied_from_source(
         value = models.IntegerField()
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_database_default"
+            app_label = "remake_schema"
+            db_table = "remake_database_default"
 
     added = models.IntegerField(db_default=5)
     added.set_attributes_from_name("with_database_default")
@@ -220,8 +220,8 @@ def test_remake_database_default_field_is_not_copied_from_source(
     editor._remake_table(Record, create_field=added)
 
     sql = _first_executed_sql(editor)
-    assert 'INSERT INTO "new__mutation_database_default" ("id", "value")' in sql
-    assert 'SELECT "id", "value" FROM "mutation_database_default"' in sql
+    assert 'INSERT INTO "new__remake_database_default" ("id", "value")' in sql
+    assert 'SELECT "id", "value" FROM "remake_database_default"' in sql
     assert "with_database_default" not in sql
 
 
@@ -233,8 +233,8 @@ def test_remake_nullable_to_required_uses_the_effective_default(
         value = models.IntegerField(null=True)
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_null_default"
+            app_label = "remake_schema"
+            db_table = "remake_null_default"
 
     old_field = Record._meta.get_field("value")
     new_field = models.IntegerField(default=17)
@@ -259,8 +259,8 @@ def test_remake_required_field_does_not_use_coalesce(
         value = models.IntegerField()
 
         class Meta:
-            app_label = "mutation_schema"
-            db_table = "mutation_required"
+            app_label = "remake_schema"
+            db_table = "remake_required"
 
     old_field = Record._meta.get_field("value")
     new_field = models.BigIntegerField()
@@ -272,4 +272,4 @@ def test_remake_required_field_does_not_use_coalesce(
 
     sql = _first_executed_sql(editor)
     assert "coalesce" not in sql
-    assert 'SELECT "id", "value" FROM "mutation_required"' in sql
+    assert 'SELECT "id", "value" FROM "remake_required"' in sql

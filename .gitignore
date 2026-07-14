@@ -9,17 +9,10 @@ __pycache__/
 __pypackages__/
 
 # Tool caches
-.benchmarks/
 .hypothesis/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-artifacts/coverage/
-mutants/
 
 # Build and distribution artifacts
 build/

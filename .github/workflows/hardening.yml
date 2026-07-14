@@ -1,127 +1,127 @@
 name: Scheduled hardening
 
 on:
-  schedule:
-    - cron: "41 10 * * 2"
-  workflow_dispatch:
+    schedule:
+        - cron: "41 10 * * 2"
+    workflow_dispatch:
 
 permissions:
-  contents: read
+    contents: read
 
 concurrency:
-  group: hardening-${{ github.ref }}
-  cancel-in-progress: false
+    group: hardening-${{ github.ref }}
+    cancel-in-progress: false
 
 env:
-  HARDENING_SEED: "20260713"
-  PDM_IGNORE_ACTIVE_VENV: "1"
+    HARDENING_SEED: "20260713"
+    PDM_IGNORE_ACTIVE_VENV: "1"
 
 jobs:
-  mutation:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - uses: pdm-project/setup-pdm@v4
-      - run: pdm sync -L pdm.lock -G dev --clean
-      - name: Report deterministic seed
-        run: echo "HARDENING_SEED=$HARDENING_SEED"
-      - run: pdm run mutation-critical
-      - if: always()
-        run: pdm run mutation-results
+    mutation:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 180
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: pdm sync -L pdm.lock -G dev --clean
+            - name: Report deterministic seed
+              run: echo "HARDENING_SEED=$HARDENING_SEED"
+            - run: pdm run mutation-critical
+            - if: always()
+              run: pdm run mutation-results
 
-  stress:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - uses: pdm-project/setup-pdm@v4
-      - run: pdm sync -L pdm.lock -G dev --clean
-      - run: echo "HARDENING_SEED=$HARDENING_SEED"
-      - run: pdm run test-stress
+    stress:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: pdm sync -L pdm.lock -G dev --clean
+            - run: echo "HARDENING_SEED=$HARDENING_SEED"
+            - run: pdm run test-stress
 
-  repeated-fast:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    env:
-      HARDENING_REPETITIONS: "3"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - uses: pdm-project/setup-pdm@v4
-      - run: pdm sync -L pdm.lock -G dev --clean
-      - run: pdm run hardening-repeated-fast
+    repeated-fast:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        env:
+            HARDENING_REPETITIONS: "3"
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: pdm sync -L pdm.lock -G dev --clean
+            - run: pdm run hardening-repeated-fast
 
-  dependency-bounds:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - resolution: minimum
-            lockfile: pdm.min.lock
-          - resolution: latest
-            lockfile: pdm.latest.lock
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - uses: pdm-project/setup-pdm@v4
-      - run: pdm lock --check --lockfile "${{ matrix.lockfile }}"
-      - run: pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
-      - run: pdm list --freeze
-      - run: echo "HARDENING_SEED=$HARDENING_SEED"
-      - run: pdm run test-fast
+    dependency-bounds:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - resolution: minimum
+                      lockfile: pdm.min.lock
+                    - resolution: latest
+                      lockfile: pdm.latest.lock
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: pdm lock --check --lockfile "${{ matrix.lockfile }}"
+            - run: pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
+            - run: pdm list --freeze
+            - run: echo "HARDENING_SEED=$HARDENING_SEED"
+            - run: pdm run test-fast
 
-  timezones:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - uses: pdm-project/setup-pdm@v4
-      - run: pdm sync -L pdm.lock -G dev --clean
-      - name: UTC full suite
-        run: pdm run hardening-utc
-      - name: Phoenix and DST-zone temporal group
-        run: pdm run hardening-timezones
+    timezones:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: pdm sync -L pdm.lock -G dev --clean
+            - name: UTC full suite
+              run: pdm run hardening-utc
+            - name: Phoenix and DST-zone temporal group
+              run: pdm run hardening-timezones
 
-  locale:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      HARDENING_LOCALE: de_DE.UTF-8
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - uses: pdm-project/setup-pdm@v4
-      - run: sudo locale-gen de_DE.UTF-8
-      - run: pdm sync -L pdm.lock -G dev --clean
-      - run: pdm run hardening-locale
+    locale:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        env:
+            HARDENING_LOCALE: de_DE.UTF-8
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: sudo locale-gen de_DE.UTF-8
+            - run: pdm sync -L pdm.lock -G dev --clean
+            - run: pdm run hardening-locale
 
-  ordering:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - uses: pdm-project/setup-pdm@v4
-      - run: pdm sync -L pdm.lock -G dev --clean
-      - run: pdm run hardening-django-order
-      - run: pdm run hardening-random-order
+    ordering:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v6
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: pdm sync -L pdm.lock -G dev --clean
+            - run: pdm run hardening-django-order
+            - run: pdm run hardening-random-order

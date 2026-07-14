@@ -8,7 +8,7 @@ __pycache__/
 .venv/
 __pypackages__/
 
-# Tool caches and coverage
+# Tool caches
 .benchmarks/
 .hypothesis/
 .mypy_cache/

@@ -1,1 +1,1 @@
-"""Repository validation and release-preparation scripts."""
+"""Small package-maintenance helpers."""

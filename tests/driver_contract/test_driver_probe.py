@@ -33,10 +33,10 @@ def test_default_cli_emits_versioned_read_only_json() -> None:
     assert evidence["probe_id"] == PROBE_ID
     assert evidence["scope"] == {
         "read_only_private_memory_connection": True,
-        "disposable_mutations_included": False,
+        "disposable_exercises_included": False,
         "caller_database_accepted": False,
     }
-    assert "disposable_mutations" not in evidence
+    assert "disposable_exercises" not in evidence
     driver = evidence["driver"]
 
     connection = turso.connect(":memory:")
@@ -54,11 +54,11 @@ def test_default_cli_emits_versioned_read_only_json() -> None:
     assert driver["pragmas"]["foreign_keys"]["status"] == "ok"
 
 
-def test_disposable_mutations_cover_bindings_transactions_files_and_cleanup() -> None:
-    evidence = _run_probe("--include-disposable-mutations")
-    mutations = evidence["disposable_mutations"]
-    memory = mutations["memory"]
-    file = mutations["file"]
+def test_disposable_exercises_cover_bindings_transactions_files_and_cleanup() -> None:
+    evidence = _run_probe("--include-disposable-exercises")
+    exercises = evidence["disposable_exercises"]
+    memory = exercises["memory"]
+    file = exercises["file"]
 
     assert memory["bindings"] == {"qmark_result": 5, "named_result": 5}
     assert memory["returning_row"] == [1, "kept"]

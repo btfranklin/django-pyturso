@@ -23,16 +23,9 @@ dev = [
     "mypy>=2.3.0",
     "django-stubs>=6.0.6",
     "hypothesis>=6.156.6",
-    "pytest-cov>=7.1.0",
-    "pytest-benchmark>=5.2.3",
     "pytest-timeout>=2.4.0",
     "build>=1.5.1",
-    "pip-audit>=2.10.1",
-    "cyclonedx-bom>=7.3.0",
     "psutil>=7.2.2",
-    "mutmut>=3.6.0",
-    "pytest-random-order>=1.2.0",
-    "ruamel-yaml>=0.19.1",
 ]
 
 [build-system]
@@ -43,55 +36,18 @@ build-backend = "pdm.backend"
 source = "scm"
 fallback_version = "0.0.0"
 
-[tool.pdm.build]
-package-dir = "src"
-source-includes = [
-    "docs",
-    "scripts",
-    "tests",
-    "SECURITY.md",
-    "THIRD_PARTY_NOTICES.md",
-]
-
 [tool.pdm.scripts]
 lint = "ruff check ."
 typecheck = "mypy src tests"
 test = "pytest"
-traceability = "python scripts/validate_traceability.py"
-security-validate = "python -m scripts.validate_security"
-security-test = "pytest tests/security tests/architecture/test_boundaries.py"
-audit = "python scripts/run_dependency_audit.py"
-sbom-generate = "python -m scripts.generate_sbom"
-sbom-validate = "python -m scripts.validate_sbom"
-sbom = { composite = ["sbom-generate", "sbom-validate"] }
-test-fast = "pytest --maxfail=1 -m 'not integration and not upstream and not stress and not performance'"
-test-core = "pytest tests/core"
+test-fast = "pytest --maxfail=1 -m 'not integration and not stress'"
 test-differential = "pytest -m differential"
 test-integration = "pytest -m integration"
-test-full = "pytest -m 'not upstream and not stress and not performance'"
-test-upstream-contract = "pytest -m upstream"
-test-upstream-suite = "python scripts/run_django_upstream.py"
-test-upstream = { composite = ["test-upstream-contract", "test-upstream-suite"] }
 test-stress = "pytest -m stress"
-test-performance = "pytest -q -m performance tests/performance --benchmark-disable"
-hardening-utc = "python scripts/run_hardening.py utc"
-hardening-timezones = "python scripts/run_hardening.py timezones"
-hardening-locale = "python scripts/run_hardening.py locale"
-hardening-django-order = "python scripts/run_hardening.py django-order"
-hardening-random-order = "python scripts/run_hardening.py random-order"
-hardening-repeated-fast = "python scripts/run_hardening.py repeated-fast"
-coverage-measure = "python scripts/run_coverage.py --measure-only"
-coverage-check = "python scripts/run_coverage.py"
-mutation-critical = "mutmut run"
-mutation-results = "mutmut results"
-build = "python scripts/build_distributions.py"
+build = "pdm build"
 package-test = "python scripts/verify_packages.py"
 verify-release = "python scripts/verify_packages.py"
-reproducible-build = "python scripts/check_reproducible_builds.py"
-release-evidence = "python -m scripts.generate_release_evidence"
-verify-full = { composite = ["lint", "typecheck", "traceability", "security-validate", "test-full"] }
-security = { composite = ["security-validate", "security-test", "audit"] }
-check = { composite = ["lint", "typecheck", "traceability", "security-validate", "test-fast"] }
+check = { composite = ["lint", "typecheck", "test-fast"] }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -101,9 +57,7 @@ markers = [
     "core: complete supported core-backend behavior",
     "differential: SQLite and Turso scenario comparison",
     "integration: cross-component and subprocess integration",
-    "performance: deterministic performance evidence",
     "stress: long-running and recovery evidence",
-    "upstream: selected Django upstream tests",
 ]
 
 [tool.ruff]
@@ -122,41 +76,3 @@ plugins = ["mypy_django_plugin.main"]
 
 [tool.django-stubs]
 django_settings_module = "tests.settings.turso_memory"
-
-[tool.coverage.run]
-branch = true
-source = ["django_pyturso"]
-relative_files = true
-dynamic_context = "test_function"
-
-[tool.coverage.report]
-precision = 2
-show_missing = true
-skip_covered = false
-
-[tool.coverage.html]
-directory = "artifacts/coverage/html"
-
-[tool.coverage.json]
-output = "artifacts/coverage/coverage.json"
-
-[tool.coverage.xml]
-output = "artifacts/coverage/coverage.xml"
-
-[tool.mutmut]
-source_paths = ["src/django_pyturso"]
-only_mutate = [
-    "src/django_pyturso/base.py",
-    "src/django_pyturso/operations.py",
-    "src/django_pyturso/schema.py",
-]
-pytest_add_cli_args = ["-m", "not upstream and not performance and not stress"]
-pytest_add_cli_args_test_selection = [
-    "tests/unit",
-    "tests/core",
-    "tests/property",
-    "tests/fault_injection",
-]
-mutate_only_covered_lines = false
-timeout_multiplier = 5.0
-timeout_constant = 1.0

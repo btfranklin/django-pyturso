@@ -1,4 +1,4 @@
-"""Focused mutation tests for the final table-remake contracts."""
+"""Focused final table-remake contracts."""
 
 from __future__ import annotations
 

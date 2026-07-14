@@ -1,4 +1,4 @@
-"""Deterministic property coverage for cursors, values, and identifiers."""
+"""Deterministic property tests for cursors, values, and identifiers."""
 
 from __future__ import annotations
 

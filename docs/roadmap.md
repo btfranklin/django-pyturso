@@ -45,8 +45,7 @@ Each future integration must independently prove:
 - stable constructors, `deconstruct()` output, migration serialization, and
   safe forward/backward migrations;
 - model/system checks using stable `django_pyturso.E...` identifiers;
-- positive, absence, property, fault, recovery, and performance coverage across
-  the supported driver/platform matrix; and
+- focused behavior, migration, and compatibility tests; and
 - documentation of portability, storage format, operations, and rollback.
 
 None of this roadmap is part of the v1 implementation or verification plan.

@@ -2,7 +2,7 @@
 """Collect versioned evidence about pyturso's public DB-API contract.
 
 The default probe is read-only and uses only a private ``:memory:`` connection.
-Pass ``--include-disposable-mutations`` to exercise transactions and a database
+Pass ``--include-disposable-exercises`` to exercise transactions and a database
 created inside a temporary directory. No caller-supplied database is accepted.
 """
 
@@ -362,7 +362,7 @@ def _disposable_file_probe() -> dict[str, Any]:
     return evidence
 
 
-def collect_probe(*, include_disposable_mutations: bool = False) -> dict[str, Any]:
+def collect_probe(*, include_disposable_exercises: bool = False) -> dict[str, Any]:
     """Return a JSON-serializable driver evidence document."""
     result: dict[str, Any] = {
         "schema_id": "django-pyturso.driver-contract.v1",
@@ -372,14 +372,14 @@ def collect_probe(*, include_disposable_mutations: bool = False) -> dict[str, An
         "generated_at": datetime.now(UTC).isoformat(),
         "scope": {
             "read_only_private_memory_connection": True,
-            "disposable_mutations_included": include_disposable_mutations,
+            "disposable_exercises_included": include_disposable_exercises,
             "caller_database_accepted": False,
         },
         "environment": _environment(),
         "driver": _read_only_driver_probe(),
     }
-    if include_disposable_mutations:
-        result["disposable_mutations"] = {
+    if include_disposable_exercises:
+        result["disposable_exercises"] = {
             "memory": _memory_behavior_probe(),
             "file": _disposable_file_probe(),
         }
@@ -389,7 +389,7 @@ def collect_probe(*, include_disposable_mutations: bool = False) -> dict[str, An
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--include-disposable-mutations",
+        "--include-disposable-exercises",
         action="store_true",
         help="exercise transactions and a database in an auto-removed temporary directory",
     )
@@ -404,7 +404,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    evidence = collect_probe(include_disposable_mutations=args.include_disposable_mutations)
+    evidence = collect_probe(include_disposable_exercises=args.include_disposable_exercises)
     indent = None if args.compact else 2
     serialized = json.dumps(evidence, indent=indent, sort_keys=True) + os.linesep
     if args.output is None:

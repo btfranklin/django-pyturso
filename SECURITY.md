@@ -16,13 +16,8 @@ platform, minimal reproduction, impact, and any known mitigation. Maintainers
 will acknowledge receipt, coordinate validation and remediation privately, and
 publish an advisory when users can act safely.
 
-## Dependency and exception policy
+## Dependency policy
 
-Pull requests review new runtime dependencies and licenses; release candidates
-run dependency and source security scans. A blocking issue must be fixed before
-release. An accepted non-blocking exception must identify the package,
-advisory or license, affected range, actual exposure, mitigation, owner,
-approval, and expiry date in
-`tests/manifests/security-exceptions.toml`. Workflow-only exceptions are not
-accepted, and expired exceptions fail the release gate. The full mechanical
-policy is documented in `docs/security.md`.
+Pull requests review new runtime dependencies and licenses. A reported security
+issue that affects the package must be fixed before release. See
+`docs/security.md` for the package's local-database boundary.

@@ -1,4 +1,4 @@
-"""Focused mutation tests for supported base-backend behavior."""
+"""Focused tests for supported base-backend behavior."""
 
 from __future__ import annotations
 

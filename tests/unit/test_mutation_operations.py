@@ -1,4 +1,4 @@
-"""Focused contracts for behavior-changing operations mutation survivors."""
+"""Focused contracts for behavior-changing operations."""
 
 from __future__ import annotations
 

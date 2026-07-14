@@ -13,11 +13,9 @@ project-specific compatibility layer.
 
 ## Status
 
-The pre-release backend is implemented and passes the local ORM, migration,
-transaction, auth/admin/forms, test-runner, differential, selected Django
-upstream, stress, performance-correctness, security, and clean-install package
-lanes. The local release-verification preparation is complete; publication and
-remote deployment remain separate, explicitly authorized operations.
+The pre-release backend is implemented and covered by focused tests for ORM,
+migrations, transactions, Django integration, driver behavior, and package
+installation. Publication remains a separate, explicitly authorized action.
 
 The v1 contract intentionally excludes writing non-NULL Django `BinaryField`
 values because the stable `pyturso` 0.7 line does not expose the required PEP
@@ -44,9 +42,8 @@ DATABASES = {
 ```
 
 The package requires CPython 3.14 or later and targets Django 6 and embedded
-local Turso through `pyturso`. Current verification evidence was produced on
-CPython 3.14. Cloud transports, remote sync, SQLite fallbacks, compatibility
-shims, and experimental engine features are excluded.
+local Turso through `pyturso`. Cloud transports, remote sync, SQLite fallbacks,
+compatibility shims, and experimental engine features are excluded.
 
 ## Navigation
 
@@ -55,11 +52,9 @@ shims, and experimental engine features are excluded.
 - [Configuration](docs/configuration.md)
 - [Compatibility status](docs/compatibility.md)
 - [Test runner](docs/test-runner.md)
-- [Testing and evidence](docs/testing.md)
+- [Testing](docs/testing.md)
 - [Security and supply chain](docs/security.md)
-- [Performance](docs/performance.md)
 - [Post-v1 roadmap](docs/roadmap.md)
-- [Review policy](docs/review-policy.md)
 - [Releasing](docs/releasing.md)
 - [Documentation index](docs/index.md)
 - [Agent operating guide](AGENTS.md)

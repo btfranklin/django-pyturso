@@ -38,10 +38,8 @@ The verified core covers:
   and single-process Django test databases; and
 - file-backed mirrors and live servers, plus safe `--keepdb` reuse.
 
-Every Django 6.0.7 `BaseDatabaseFeatures` member has an explicit static
-disposition. These are framework compatibility facts, not runtime switches.
-The declarations in `features.py`, the traceability manifest, and their tests
-are the executable detail behind this summary.
+The `features.py` declarations are framework compatibility facts, not runtime
+switches, and are covered by focused tests.
 
 ## Intentional differences and conservative rejections
 
@@ -90,7 +88,5 @@ contract implicitly.
 
 ## Release condition
 
-Local release-verification eligibility requires every authoritative verification
-gate to pass for the exact prepared artifacts. Publication, tagging, pushing,
-remote CI execution, and GitHub Release creation are separate external actions
-and are not part of local preparation.
+Before a release, run the documented release workflow against the tagged commit.
+Publication remains a separate human action.

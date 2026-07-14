@@ -1,4 +1,4 @@
-"""Mutation-focused contracts for fields handled by table remakes."""
+"""Contracts for fields handled by table remakes."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Focused table-remake option contracts for mutation-sensitive branches."""
+"""Focused table-remake option contracts."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Subprocess coverage for Django's own test-runner lifecycle."""
+"""Subprocess tests for Django's own test-runner lifecycle."""
 
 import os
 import subprocess

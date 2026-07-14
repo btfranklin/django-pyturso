@@ -1,4 +1,4 @@
-"""Focused mutation tests for schema alteration dispatch contracts."""
+"""Focused schema-alteration dispatch contracts."""
 
 from __future__ import annotations
 

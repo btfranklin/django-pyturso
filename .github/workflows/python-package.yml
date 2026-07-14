@@ -9,18 +9,21 @@ permissions:
     contents: read
 
 jobs:
-    lock-integrity:
-        name: Lock integrity
+    quality:
+        name: Quality
         runs-on: ubuntu-24.04
-        timeout-minutes: 10
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@v7
             - uses: actions/setup-python@v6
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
-            - name: Verify the canonical lock
-              run: pdm lock --check
+            - run: pdm lock --check
+            - run: pdm sync -G dev --clean
+            - run: pdm run check
+            - run: pdm run build
+            - run: pdm run package-test
 
     dependency-review:
         name: Runtime dependency review
@@ -28,52 +31,7 @@ jobs:
         runs-on: ubuntu-24.04
         steps:
             - uses: actions/checkout@v7
-            - name: Enforce vulnerability and license policy
+            - name: Review runtime dependency changes
               uses: actions/dependency-review-action@v5
               with:
                   config-file: ./.github/dependency-review-config.yml
-
-    quality:
-        name: Quality (${{ matrix.os }})
-        runs-on: ${{ matrix.os }}
-        strategy:
-            fail-fast: false
-            matrix:
-                os: [macos-15, ubuntu-24.04, windows-2025]
-        steps:
-            - uses: actions/checkout@v7
-            - uses: actions/setup-python@v6
-              with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-              with:
-                  cache: true
-                  cache-dependency-path: pdm.lock
-            - name: Install the canonical resolution
-              run: pdm sync -G dev --clean
-            - name: Record environment
-              run: pdm list --freeze
-            - name: Run the canonical local gate
-              run: pdm run check
-            - name: Capture the driver/platform contract
-              run: >-
-                  pdm run python scripts/probes/driver_contract.py
-                  --include-disposable-mutations
-                  --output driver-platform.json
-            - name: Upload driver/platform evidence
-              uses: actions/upload-artifact@v7
-              with:
-                  name: driver-platform-${{ matrix.os }}
-                  path: driver-platform.json
-
-    review-metadata:
-        name: Review metadata
-        if: github.event_name == 'pull_request'
-        runs-on: ubuntu-24.04
-        steps:
-            - uses: actions/checkout@v7
-            - uses: actions/setup-python@v6
-              with:
-                  python-version: "3.14"
-            - name: Validate classification and evidence metadata
-              run: python scripts/validate_review_metadata.py

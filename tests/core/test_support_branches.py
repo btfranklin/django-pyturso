@@ -1,4 +1,4 @@
-"""Focused branch coverage for small backend support modules."""
+"""Focused tests for small backend support modules."""
 
 from __future__ import annotations
 

@@ -15,12 +15,12 @@ VERSIONED_ACTION = re.compile(r"^\s*- uses: [^\s@]+@v\d+$", re.MULTILINE)
 def test_hardening_workflow_is_non_release_scheduled_preparation() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "  schedule:\n" in workflow
-    assert "  workflow_dispatch:\n" in workflow
+    assert "    schedule:\n" in workflow
+    assert "    workflow_dispatch:\n" in workflow
     assert "pull_request:" not in workflow
-    assert "  push:" not in workflow
+    assert "    push:" not in workflow
     assert "release:" not in workflow
-    assert "permissions:\n  contents: read" in workflow
+    assert "permissions:\n    contents: read" in workflow
     assert "timeout-minutes:" in workflow
     assert "HARDENING_SEED" in workflow
     uses_lines = [line for line in workflow.splitlines() if line.lstrip().startswith("- uses:")]

@@ -86,6 +86,7 @@ mutation-critical = "mutmut run"
 mutation-results = "mutmut results"
 build = "python scripts/build_distributions.py"
 package-test = "python scripts/verify_packages.py"
+verify-release = "python scripts/verify_packages.py"
 reproducible-build = "python scripts/check_reproducible_builds.py"
 release-evidence = "python -m scripts.generate_release_evidence"
 verify-full = { composite = ["lint", "typecheck", "traceability", "security-validate", "test-full"] }

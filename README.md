@@ -14,7 +14,7 @@ project-specific compatibility layer.
 The pre-release backend is implemented and passes the local ORM, migration,
 transaction, auth/admin/forms, test-runner, differential, selected Django
 upstream, stress, performance-correctness, security, and clean-install package
-lanes. The local release-candidate preparation is complete; publication and
+lanes. The local release-verification preparation is complete; publication and
 remote deployment remain separate, explicitly authorized operations.
 
 The v1 contract intentionally excludes writing non-NULL Django `BinaryField`

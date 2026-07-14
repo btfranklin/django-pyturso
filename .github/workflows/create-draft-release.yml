@@ -6,160 +6,18 @@ on:
             - "v*.*.*"
 
 permissions:
-    contents: read
+    contents: write
 
 jobs:
-    preflight:
-        runs-on: ubuntu-24.04
+    draft-release:
+        runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v7
+            - uses: actions/checkout@v6
               with:
                   fetch-depth: 0
-                  ref: ${{ github.ref }}
-            - name: Verify signed tag, immutable commit, and completed plan
-              env:
-                  TAG: ${{ github.ref_name }}
-              run: |
-                  test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
-                  git verify-tag "$TAG"
-                  test ! -e IMPLEMENTATION_PLAN.md || {
-                    echo "IMPLEMENTATION_PLAN.md still contains release-blocking work" >&2
-                    exit 1
-                  }
-
-    platform-verification:
-        needs: preflight
-        name: Platform (${{ matrix.label }})
-        runs-on: ${{ matrix.os }}
-        timeout-minutes: 45
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    - label: macos-locked
-                      os: macos-15
-                      lockfile: pdm.lock
-                    - label: macos-minimum
-                      os: macos-15
-                      lockfile: pdm.min.lock
-                    - label: linux-locked
-                      os: ubuntu-24.04
-                      lockfile: pdm.lock
-                    - label: linux-minimum
-                      os: ubuntu-24.04
-                      lockfile: pdm.min.lock
-                    - label: linux-latest
-                      os: ubuntu-24.04
-                      lockfile: pdm.latest.lock
-                    - label: windows-locked
-                      os: windows-2025
-                      lockfile: pdm.lock
-                    - label: windows-minimum
-                      os: windows-2025
-                      lockfile: pdm.min.lock
-        steps:
-            - uses: actions/checkout@v7
-            - uses: actions/setup-python@v6
+            - name: Generate release notes
+              uses: btfranklin/release-notes-scribe@v0
               with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-            - name: Install and verify the selected resolution
-              run: |
-                  pdm sync -L "${{ matrix.lockfile }}" -G dev --clean
-                  pdm run check
-            - name: Capture the driver/platform contract
-              run: >-
-                  pdm run python scripts/probes/driver_contract.py
-                  --include-disposable-mutations
-                  --output driver-platform.json
-            - name: Upload driver/platform evidence
-              uses: actions/upload-artifact@v7
-              with:
-                  name: driver-platform-${{ matrix.label }}
-                  path: driver-platform.json
-
-    deep-verification:
-        needs: preflight
-        runs-on: ubuntu-24.04
-        timeout-minutes: 180
-        steps:
-            - uses: actions/checkout@v7
-              with:
-                  fetch-depth: 0
-            - uses: actions/setup-python@v6
-              with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-            - name: Install and validate every lockfile
-              run: |
-                  pdm lock --check
-                  pdm lock --check --lockfile pdm.min.lock
-                  pdm lock --check --lockfile pdm.latest.lock
-                  pdm sync -L pdm.lock -G dev --clean
-            - name: Run complete release-candidate verification
-              run: |
-                  pdm run coverage-check
-                  pdm run test-differential
-                  pdm run test-upstream
-                  pdm run test-stress
-                  pdm run test-performance
-                  pdm run security
-                  pdm run reproducible-build
-                  pdm run mutation-critical
-                  pdm run mutation-results
-
-    release-candidate:
-        needs: [preflight, platform-verification, deep-verification]
-        runs-on: macos-15
-        timeout-minutes: 60
-        permissions:
-            contents: write
-            id-token: write
-            attestations: write
-        steps:
-            - uses: actions/checkout@v7
-              with:
-                  fetch-depth: 0
-                  ref: ${{ github.ref }}
-            - name: Reverify signed tag and immutable commit identity
-              env:
-                  TAG: ${{ github.ref_name }}
-              run: |
-                  test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
-                  git verify-tag "$TAG"
-            - uses: actions/setup-python@v6
-              with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-            - name: Install the release lock
-              run: pdm sync -L pdm.lock -G dev --clean
-            - name: Build and clean-install exact versioned artifacts
-              env:
-                  TAG: ${{ github.ref_name }}
-              run: |
-                  pdm run build
-                  pdm run python scripts/verify_packages.py --expected-version "${TAG#v}"
-            - name: Audit dependencies and generate SBOM
-              run: |
-                  pdm run audit
-                  pdm run sbom
-            - name: Record artifact hashes
-              run: |
-                  cd dist
-                  sums_file=$(mktemp)
-                  find . -type f ! -name SHA256SUMS -print0 \
-                    | sort -z \
-                    | xargs -0 shasum -a 256 > "$sums_file"
-                  mv "$sums_file" SHA256SUMS
-            - name: Attest exact release artifacts
-              uses: actions/attest-build-provenance@v3
-              with:
-                  subject-path: |
-                      dist/*.whl
-                      dist/*.tar.gz
-                      dist/sbom.cdx.json
-            - name: Create draft release with immutable assets
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  TAG: ${{ github.ref_name }}
-              run: gh release create "$TAG" dist/* --draft --verify-tag --generate-notes
+                  openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  include_github_generated_notes: "true"

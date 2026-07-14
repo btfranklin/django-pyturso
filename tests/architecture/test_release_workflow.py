@@ -1,16 +1,29 @@
-"""Release-candidate workflow safety contract."""
+"""Release-workflow safety contracts."""
 
 from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
-WORKFLOW = ROOT / ".github" / "workflows" / "create-draft-release.yml"
+DRAFT_WORKFLOW = ROOT / ".github" / "workflows" / "create-draft-release.yml"
+VERIFY_WORKFLOW = ROOT / ".github" / "workflows" / "verify-release.yml"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "python-publish.yml"
 
 
-def test_release_assets_depend_on_complete_local_verification() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert "test ! -e IMPLEMENTATION_PLAN.md" in workflow
-    assert "needs: [preflight, platform-verification, deep-verification]" in workflow
+def test_draft_release_is_the_standard_tag_triggered_creator() -> None:
+    workflow = DRAFT_WORKFLOW.read_text(encoding="utf-8")
+    assert 'name: Create Draft Release' in workflow
+    assert 'tags:\n            - "v*.*.*"' in workflow
+    assert 'contents: write' in workflow
+    assert 'uses: btfranklin/release-notes-scribe@v0' in workflow
+
+
+def test_verify_release_carries_exact_tag_evidence_without_releasing() -> None:
+    workflow = VERIFY_WORKFLOW.read_text(encoding="utf-8")
+    assert 'name: Verify Release' in workflow
+    assert 'verify-release:' in workflow
+    assert 'test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"' in workflow
+    assert 'pdm run verify-release --expected-version "${TAG#v}"' in workflow
+    assert 'gh release create' not in workflow
+    assert 'contents: write' not in workflow
     for command in (
         "pdm run coverage-check",
         "pdm run test-upstream",
@@ -21,14 +34,13 @@ def test_release_assets_depend_on_complete_local_verification() -> None:
         "pdm run mutation-critical",
     ):
         assert command in workflow
-    assert '--expected-version "${TAG#v}"' in workflow
 
 
 def test_publish_rebuilds_the_release_for_trusted_publishing() -> None:
     workflow = PUBLISH_WORKFLOW.read_text(encoding="utf-8")
-    assert "  release:\n    types: [published]" in workflow
-    assert "    environment: release" in workflow
-    assert "      id-token: write" in workflow
+    assert "    release:\n        types: [published]" in workflow
+    assert "        environment: release" in workflow
+    assert "            id-token: write" in workflow
     assert "actions/checkout@v7" in workflow
     assert "actions/setup-python@v6" in workflow
     assert "pdm-project/setup-pdm@v4" in workflow

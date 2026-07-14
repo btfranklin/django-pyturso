@@ -1,4 +1,4 @@
-"""Generate a deterministic index of local release-candidate evidence."""
+"""Generate a deterministic index of local release-verification evidence."""
 
 from __future__ import annotations
 

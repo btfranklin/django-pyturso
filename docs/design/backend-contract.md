@@ -91,7 +91,7 @@ contract implicitly.
 
 ## Release condition
 
-Local release-candidate eligibility requires every authoritative verification
+Local release-verification eligibility requires every authoritative verification
 gate to pass for the exact prepared artifacts. Publication, tagging, pushing,
 remote CI execution, and GitHub Release creation are separate external actions
 and are not part of local preparation.

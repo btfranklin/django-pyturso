@@ -9,7 +9,7 @@ The existing macOS arm64, Linux arm64, and emulated Linux x86_64 evidence remain
 recorded in `docs/design/evidence/driver-platform-matrix.md`.
 
 This procedure is verification only. It must not publish a package, create a
-tag or GitHub Release, upload to PyPI, or invoke either release workflow.
+tag or GitHub Release, upload to PyPI, or invoke any release workflow.
 
 ## Deployment prerequisites
 

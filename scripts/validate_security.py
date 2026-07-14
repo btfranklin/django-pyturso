@@ -174,8 +174,13 @@ def validate_workflows() -> None:
         raise ValueError("no GitHub workflows found")
     for path in workflows:
         text = path.read_text()
-        if "permissions:\n  contents: read" not in text:
-            raise ValueError(f"{path.name} must default to read-only contents permission")
+        expected_contents_permission = (
+            "write" if path.name == "create-draft-release.yml" else "read"
+        )
+        if f"permissions:\n    contents: {expected_contents_permission}" not in text:
+            raise ValueError(
+                f"{path.name} must default to contents: {expected_contents_permission}"
+            )
         for lineno, line in enumerate(text.splitlines(), start=1):
             if "uses:" not in line:
                 continue

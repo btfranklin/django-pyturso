@@ -2,57 +2,109 @@
 
 from __future__ import annotations
 
-import re
 import tomllib
 from pathlib import Path
+
+from scripts.workflow_policy import (
+    command_position,
+    job_run_lines,
+    jobs,
+    load_workflow,
+    permissions,
+    steps,
+    triggers,
+)
 
 ROOT = Path(__file__).parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "hardening.yml"
 PYPROJECT = ROOT / "pyproject.toml"
-VERSIONED_ACTION = re.compile(r"^\s*- uses: [^\s@]+@v\d+$", re.MULTILINE)
+REQUIRED_JOBS = {
+    "mutation",
+    "stress",
+    "repeated-fast",
+    "dependency-bounds",
+    "timezones",
+    "locale",
+    "ordering",
+}
 
 
 def test_hardening_workflow_is_non_release_scheduled_preparation() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
+    workflow = load_workflow(WORKFLOW)
+    workflow_jobs = jobs(workflow)
 
-    assert "    schedule:\n" in workflow
-    assert "    workflow_dispatch:\n" in workflow
-    assert "pull_request:" not in workflow
-    assert "    push:" not in workflow
-    assert "release:" not in workflow
-    assert "permissions:\n    contents: read" in workflow
-    assert "timeout-minutes:" in workflow
-    assert "HARDENING_SEED" in workflow
-    uses_lines = [line for line in workflow.splitlines() if line.lstrip().startswith("- uses:")]
-    assert uses_lines
-    assert all(VERSIONED_ACTION.match(line) for line in uses_lines)
+    assert triggers(workflow) == {
+        "schedule": [{"cron": "41 10 * * 2"}],
+        "workflow_dispatch": None,
+    }
+    assert permissions(workflow) == {"contents": "read"}
+    assert workflow["env"]["HARDENING_SEED"] == "20260713"
+    assert set(workflow_jobs) == REQUIRED_JOBS
+    for job_id, job in workflow_jobs.items():
+        assert isinstance(job.get("timeout-minutes"), int), job_id
+        assert job["timeout-minutes"] > 0, job_id
+        assert "permissions" not in job
 
 
-def test_hardening_workflow_covers_required_independence_lanes() -> None:
-    workflow = WORKFLOW.read_text(encoding="utf-8")
-    for job in (
-        "  mutation:",
-        "  stress:",
-        "  repeated-fast:",
-        "  dependency-bounds:",
-        "  timezones:",
-        "  locale:",
-        "  ordering:",
-    ):
-        assert job in workflow
-    for command in (
-        "pdm run mutation-critical",
-        "pdm run test-stress",
-        "pdm run hardening-repeated-fast",
-        "pdm.min.lock",
-        "pdm.latest.lock",
-        "pdm run hardening-utc",
-        "pdm run hardening-timezones",
-        "pdm run hardening-locale",
-        "pdm run hardening-django-order",
-        "pdm run hardening-random-order",
-    ):
-        assert command in workflow
+def test_hardening_workflow_commands_have_exact_lane_ownership() -> None:
+    workflow_jobs = jobs(load_workflow(WORKFLOW))
+    owned_commands = {
+        "mutation": ("pdm run mutation-critical", "pdm run mutation-results"),
+        "stress": ("pdm run test-stress",),
+        "repeated-fast": ("pdm run hardening-repeated-fast",),
+        "timezones": ("pdm run hardening-utc", "pdm run hardening-timezones"),
+        "locale": ("pdm run hardening-locale",),
+        "ordering": (
+            "pdm run hardening-django-order",
+            "pdm run hardening-random-order",
+        ),
+    }
+    for owner, commands in owned_commands.items():
+        positions = [
+            command_position(workflow_jobs[owner], job_id=owner, command=command)
+            for command in commands
+        ]
+        assert positions == sorted(positions)
+        for other_job_id, other_job in workflow_jobs.items():
+            if other_job_id != owner:
+                assert not set(commands) & set(job_run_lines(other_job, job_id=other_job_id))
+
+    mutation_steps = steps(workflow_jobs["mutation"], job_id="mutation")
+    mutation_results = [
+        step for step in mutation_steps if step.get("run") == "pdm run mutation-results"
+    ]
+    assert len(mutation_results) == 1
+    assert mutation_results[0].get("if") == "always()"
+
+
+def test_hardening_workflow_dependency_lanes_and_install_order_are_explicit() -> None:
+    workflow_jobs = jobs(load_workflow(WORKFLOW))
+    dependency_bounds = workflow_jobs["dependency-bounds"]
+    include = dependency_bounds["strategy"]["matrix"]["include"]
+    assert {(entry["resolution"], entry["lockfile"]) for entry in include} == {
+        ("minimum", "pdm.min.lock"),
+        ("latest", "pdm.latest.lock"),
+    }
+    dependency_lines = job_run_lines(dependency_bounds, job_id="dependency-bounds")
+    assert dependency_lines.index(
+        'pdm lock --check --lockfile "${{ matrix.lockfile }}"'
+    ) < dependency_lines.index(
+        'pdm sync -L "${{ matrix.lockfile }}" -G dev --clean'
+    ) < dependency_lines.index("pdm list --freeze") < dependency_lines.index(
+        "pdm run test-fast"
+    )
+
+    for job_id, job in workflow_jobs.items():
+        lines = job_run_lines(job, job_id=job_id)
+        sync_positions = [index for index, line in enumerate(lines) if line.startswith("pdm sync ")]
+        test_positions = [
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("pdm run ") and line != "pdm run mutation-results"
+        ]
+        assert sync_positions, job_id
+        assert test_positions, job_id
+        assert min(sync_positions) < min(test_positions), job_id
 
 
 def test_local_hardening_commands_and_random_order_dependency_are_declared() -> None:

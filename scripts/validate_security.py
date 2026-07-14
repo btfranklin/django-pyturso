@@ -13,13 +13,34 @@ from typing import Any
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from .workflow_policy import (
+    action_uses,
+    job_run_lines,
+    jobs,
+    load_workflow,
+    normalized_expression,
+    permissions,
+    scalar_values,
+    steps,
+    triggers,
+)
+
 ROOT = Path(__file__).resolve().parents[1]
 EXCEPTIONS_PATH = ROOT / "tests" / "manifests" / "security-exceptions.toml"
 DEPENDENCY_REVIEW_PATH = ROOT / ".github" / "dependency-review-config.yml"
 WORKFLOW_ROOT = ROOT / ".github" / "workflows"
-WRITE_CONTENTS_WORKFLOWS = {
-    "create-draft-release.yml",
-    "dependabot-auto-merge.yml",
+SPECIAL_WORKFLOW_PERMISSIONS = {
+    "create-draft-release.yml": {"contents": "write"},
+    "dependabot-auto-merge.yml": {
+        "contents": "write",
+        "pull-requests": "write",
+    },
+}
+ALLOWED_JOB_WRITE_PERMISSIONS = {
+    ("codeql.yml", "analyze", "security-events"),
+    ("python-publish.yml", "publish", "id-token"),
+    ("verify-release.yml", "verify-release", "attestations"),
+    ("verify-release.yml", "verify-release", "id-token"),
 }
 
 REQUIRED_EXCEPTION_FIELDS = {
@@ -42,7 +63,7 @@ CLASSIFIER_LICENSES = {
     "License :: OSI Approved :: Python Software Foundation License": "PSF-2.0",
 }
 ACTION_VERSION = re.compile(
-    r"^\s*(?:-\s+)?uses:\s+(?P<action>[^\s@]+)@(?P<version>v\d+|release/v\d+)\s*$"
+    r"^(?P<action>[^\s@]+)@(?P<version>v\d+|release/v\d+)$"
 )
 
 
@@ -177,46 +198,99 @@ def validate_workflows() -> None:
     if not workflows:
         raise ValueError("no GitHub workflows found")
     for path in workflows:
-        text = path.read_text()
-        expected_contents_permission = "write" if path.name in WRITE_CONTENTS_WORKFLOWS else "read"
-        if f"permissions:\n    contents: {expected_contents_permission}" not in text:
+        workflow = load_workflow(path)
+        workflow_jobs = jobs(workflow)
+        expected_permissions = SPECIAL_WORKFLOW_PERMISSIONS.get(
+            path.name, {"contents": "read"}
+        )
+        if permissions(workflow) != expected_permissions:
             raise ValueError(
-                f"{path.name} must default to contents: {expected_contents_permission}"
+                f"{path.name} workflow permissions must be {expected_permissions}"
             )
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if "uses:" not in line:
+        for job_id, job in workflow_jobs.items():
+            if "permissions" not in job:
                 continue
-            target = line.split("uses:", 1)[1].strip()
-            if target.startswith(("./", "docker://")):
+            for scope, level in permissions(
+                job, location=f"jobs.{job_id}.permissions"
+            ).items():
+                if level == "write" and (
+                    path.name,
+                    job_id,
+                    scope,
+                ) not in ALLOWED_JOB_WRITE_PERMISSIONS:
+                    raise ValueError(
+                        f"{path.name} jobs.{job_id} has unexpected {scope}: write permission"
+                    )
+        for use in action_uses(workflow):
+            if use.reference.startswith(("./", "docker://")):
                 continue
-            if not ACTION_VERSION.match(line):
+            if ACTION_VERSION.fullmatch(use.reference) is None:
+                location = f"jobs.{use.job_id}"
+                if use.step_index is not None:
+                    location += f".steps[{use.step_index}]"
                 raise ValueError(
-                    f"{path.name}:{lineno} action must use a major release channel such as "
+                    f"{path.name} {location}.uses must use a major release channel such as "
                     "v4 or release/v1; minor, patch, and commit SHA pins are forbidden"
                 )
         if path.name == "python-package.yml":
-            if "secrets." in text or re.search(r"^\s+\w[\w-]*:\s+write\s*$", text, re.MULTILINE):
+            if any("secrets." in value for value in scalar_values(workflow)):
                 raise ValueError(
-                    "pull-request workflow must not receive secrets or write permission"
+                    "pull-request workflow must not receive secrets"
                 )
-            if "actions/dependency-review-action@" not in text:
+            if any(
+                level == "write"
+                for job_id, job in workflow_jobs.items()
+                if "permissions" in job
+                for level in permissions(
+                    job, location=f"jobs.{job_id}.permissions"
+                ).values()
+            ):
+                raise ValueError("pull-request workflow must not receive write permission")
+            if not any(
+                use.reference.startswith("actions/dependency-review-action@")
+                for use in action_uses(workflow)
+            ):
                 raise ValueError("pull-request workflow must run dependency review")
-        if path.name == "codeql.yml" and "language: [python, actions]" not in text:
-            raise ValueError("CodeQL must scan both Python and GitHub Actions workflows")
+        if path.name == "codeql.yml":
+            languages = workflow_jobs["analyze"]["strategy"]["matrix"]["language"]
+            if languages != ["python", "actions"]:
+                raise ValueError("CodeQL must scan both Python and GitHub Actions workflows")
         if path.name == "dependabot-auto-merge.yml":
-            required = (
-                "pull_request_target:",
-                "pull-requests: write",
-                "github.event.pull_request.user.login == 'app/dependabot'",
-                "github.event.pull_request.user.login == 'dependabot[bot]'",
-                'gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash',
-            )
-            if any(fragment not in text for fragment in required):
-                raise ValueError(
-                    "Dependabot auto-merge must remain a narrow, trusted enrollment workflow"
-                )
-            if "actions/checkout" in text:
-                raise ValueError("Dependabot auto-merge must not check out pull-request code")
+            _validate_dependabot_auto_merge(workflow)
+
+
+def _validate_dependabot_auto_merge(workflow: dict[str, Any]) -> None:
+    expected_condition = (
+        "github.event.pull_request.user.login=='app/dependabot'||"
+        "github.event.pull_request.user.login=='dependabot[bot]'"
+    )
+    workflow_jobs = jobs(workflow)
+    if triggers(workflow) != {
+        "pull_request_target": {"types": ["opened", "reopened"]}
+    } or set(workflow_jobs) != {"enable-auto-merge"}:
+        raise ValueError(
+            "Dependabot auto-merge must remain a narrow, trusted enrollment workflow"
+        )
+    job = workflow_jobs["enable-auto-merge"]
+    if normalized_expression(job.get("if"), location="jobs.enable-auto-merge.if") != (
+        expected_condition
+    ):
+        raise ValueError("Dependabot auto-merge must restrict enrollment to Dependabot")
+    job_steps = steps(job, job_id="enable-auto-merge")
+    if len(job_steps) != 1:
+        raise ValueError("Dependabot auto-merge must have exactly one enrollment step")
+    step = job_steps[0]
+    if step.get("env") != {
+        "GH_TOKEN": "${{ github.token }}",
+        "PR_NUMBER": "${{ github.event.pull_request.number }}",
+    }:
+        raise ValueError("Dependabot auto-merge enrollment environment is invalid")
+    if job_run_lines(job, job_id="enable-auto-merge") != (
+        'gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash',
+    ):
+        raise ValueError("Dependabot auto-merge command is invalid")
+    if any(use.reference.startswith("actions/checkout@") for use in action_uses(workflow)):
+        raise ValueError("Dependabot auto-merge must not check out pull-request code")
 
 
 def main() -> None:

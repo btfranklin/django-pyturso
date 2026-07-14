@@ -32,6 +32,7 @@ dev = [
     "psutil>=7.2.2",
     "mutmut>=3.6.0",
     "pytest-random-order>=1.2.0",
+    "ruamel-yaml>=0.19.1",
 ]
 
 [build-system]
@@ -58,7 +59,7 @@ lint = "ruff check ."
 typecheck = "mypy src tests"
 test = "pytest"
 traceability = "python scripts/validate_traceability.py"
-security-validate = "python scripts/validate_security.py"
+security-validate = "python -m scripts.validate_security"
 security-test = "pytest tests/security tests/architecture/test_boundaries.py"
 audit = "python scripts/run_dependency_audit.py"
 sbom-generate = "python -m scripts.generate_sbom"

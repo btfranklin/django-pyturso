@@ -87,9 +87,10 @@ exceptions are forbidden.
 
 All workflow permissions default to read-only repository contents. A job may
 elevate only the permission it needs: CodeQL can write security events, release
-candidate preparation can write draft-release assets and attestations, and the
-publication job can request a PyPI identity token. Pull-request tests receive no
-publication secret or write permission.
+draft creation can write the GitHub draft, release verification can write only
+attestations and their identity tokens, and the publication job can request a
+PyPI identity token. Pull-request tests receive no publication secret or write
+permission.
 
 Every third-party action reference uses a human-readable major release channel
 such as `v7`, `v3`, or PyPA's documented `release/v1`; minor, patch, and commit
@@ -104,12 +105,15 @@ enrolls only Dependabot-authored pull requests in squash auto-merge; the branch
 rule prevents that merge until every required check succeeds. GitHub then
 automatically deletes the merged head branch.
 
-The tag workflow refuses to proceed while `IMPLEMENTATION_PLAN.md` exists. It
-requires locked/minimum platform checks on macOS, Linux, and Windows, a Linux
-newest-compatible check, and the complete deep verification job before the
-asset-building job can create a draft release. The final artifact check binds
-wheel and sdist metadata to each other and to the signed tag version. Preparing
-this workflow locally does not execute it or publish anything.
+Two workflows start independently from the same signed version-tag push. Draft
+creation owns the GitHub draft and does not wait for verification. Verification
+refuses to proceed while `IMPLEMENTATION_PLAN.md` exists, requires
+locked/minimum platform checks on macOS, Linux, and Windows, a Linux
+newest-compatible check, and the complete deep-verification job before its
+final artifact check. That check binds wheel and sdist metadata to each other
+and to the signed tag version. Verification cannot create or publish a GitHub
+Release. The maintainer reviews the completed verification for the same tag and
+publishes the draft as the human approval gate. See [Releasing](releasing.md).
 
 After a GitHub Release is published, the publication job checks out that release,
 builds the package with PDM, and uses Trusted Publishing's release-environment

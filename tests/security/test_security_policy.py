@@ -8,6 +8,7 @@ import pytest
 
 from scripts import validate_security
 from scripts.validate_sbom import validate_document
+from scripts.workflow_policy import action_uses, jobs, load_workflow, permissions, triggers
 
 
 def _write_exception(path: Path, *, expires_on: str, include_owner: bool = True) -> None:
@@ -36,6 +37,7 @@ def _write_workflow(path: Path, action_reference: str) -> None:
         "\n".join(
             [
                 "name: Test",
+                "# uses: actions/checkout@v7.0.0",
                 "on: [push]",
                 "permissions:",
                 "    contents: read",
@@ -44,6 +46,7 @@ def _write_workflow(path: Path, action_reference: str) -> None:
                 "        runs-on: ubuntu-24.04",
                 "        steps:",
                 f"            - uses: {action_reference}",
+                "            - run: 'echo \"uses: actions/setup-python@v6.1.0\"'",
                 "",
             ]
         ),
@@ -59,14 +62,19 @@ def test_repository_security_policy_is_valid() -> None:
 
 
 def test_dependabot_auto_merge_enrolls_only_dependabot_without_checkout() -> None:
-    workflow = (
+    workflow = load_workflow(
         Path(__file__).parents[2] / ".github" / "workflows" / "dependabot-auto-merge.yml"
-    ).read_text(encoding="utf-8")
-    assert "pull_request_target:" in workflow
-    assert "app/dependabot" in workflow
-    assert "dependabot[bot]" in workflow
-    assert 'gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash' in workflow
-    assert "actions/checkout" not in workflow
+    )
+    assert triggers(workflow) == {
+        "pull_request_target": {"types": ["opened", "reopened"]}
+    }
+    assert permissions(workflow) == {
+        "contents": "write",
+        "pull-requests": "write",
+    }
+    assert set(jobs(workflow)) == {"enable-auto-merge"}
+    assert action_uses(workflow) == []
+    validate_security._validate_dependabot_auto_merge(workflow)
 
 
 def test_workflow_policy_accepts_human_readable_action_versions(
@@ -85,6 +93,33 @@ def test_workflow_policy_accepts_release_major_action_channel(
     monkeypatch.setattr(validate_security, "WORKFLOW_ROOT", tmp_path)
 
     validate_security.validate_workflows()
+
+
+def test_workflow_policy_does_not_accept_commented_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "sample.yml"
+    path.write_text(
+        "\n".join(
+            [
+                "name: Test",
+                "on: [push]",
+                "# permissions:",
+                "#     contents: read",
+                "jobs:",
+                "    test:",
+                "        runs-on: ubuntu-24.04",
+                "        steps:",
+                "            - uses: actions/checkout@v7",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(validate_security, "WORKFLOW_ROOT", tmp_path)
+
+    with pytest.raises(ValueError, match="permissions must be a mapping"):
+        validate_security.validate_workflows()
 
 
 def test_workflow_policy_rejects_commit_sha_action_pins(

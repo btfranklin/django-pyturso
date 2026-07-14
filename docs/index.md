@@ -5,6 +5,8 @@
 - [Native platform CI deployment guide](../NATIVE_PLATFORM_CI.md): deferred
   native-runner evidence procedure.
 - [Review policy](review-policy.md): required reasoning-review gates and evidence.
+- [Releasing](releasing.md): parallel same-tag preparation, human approval, and
+  Trusted Publishing ownership.
 - [Django provenance](design/django-provenance.md): exact reference source and
   adaptation ledger.
 - [Driver/platform evidence](design/evidence/driver-platform-matrix.md):

@@ -100,6 +100,50 @@ def test_constraint_failure_rolls_back_ddl_and_restores_state(django_db_blocker:
 
 
 @pytest.mark.core
+@pytest.mark.parametrize("foreign_keys", [0, 1])
+def test_deferred_ddl_failure_rolls_back_and_leaves_connection_usable(
+    django_db_blocker: Any, foreign_keys: int
+) -> None:
+    with django_db_blocker.unblock():
+        with connection.cursor() as cursor:
+            cursor.execute(f"PRAGMA foreign_keys = {foreign_keys}")
+        try:
+            physical_connection = connection.connection
+            with pytest.raises(IntegrityError):
+                with connection.schema_editor() as editor:
+                    editor.execute("CREATE TABLE schema_failed_deferred (value INTEGER)")
+                    editor.execute("INSERT INTO schema_failed_deferred VALUES (1), (1)")
+                    editor.deferred_sql.append(
+                        "CREATE UNIQUE INDEX schema_failed_deferred_uq "
+                        "ON schema_failed_deferred (value)"
+                    )
+
+            assert connection.connection is physical_connection
+            assert not connection.in_atomic_block
+            assert not connection.needs_rollback
+            assert connection.get_autocommit()
+            assert _foreign_key_state() == foreign_keys
+            assert "schema_failed_deferred" not in connection.introspection.table_names()
+
+            with connection.schema_editor() as editor:
+                editor.execute("CREATE TABLE schema_failed_deferred (value INTEGER)")
+                editor.deferred_sql.append(
+                    "CREATE UNIQUE INDEX schema_failed_deferred_uq "
+                    "ON schema_failed_deferred (value)"
+                )
+            with connection.cursor() as cursor:
+                cursor.execute("INSERT INTO schema_failed_deferred VALUES (2)")
+                cursor.execute("SELECT value FROM schema_failed_deferred")
+                assert cursor.fetchall() == [(2,)]
+            with connection.schema_editor() as editor:
+                editor.execute("DROP TABLE schema_failed_deferred")
+            assert _foreign_key_state() == foreign_keys
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("PRAGMA foreign_keys = ON")
+
+
+@pytest.mark.core
 def test_migration_operations_remake_tables_and_preserve_data(
     django_db_blocker: Any,
 ) -> None:

@@ -27,7 +27,9 @@ class _LifecycleConnection:
 
 def _editor(check_error: BaseException | None = None) -> DatabaseSchemaEditor:
     wrapper = cast(Any, _LifecycleConnection(check_error))
-    return DatabaseSchemaEditor(wrapper, atomic=False)
+    editor = DatabaseSchemaEditor(wrapper, atomic=False)
+    editor.deferred_sql = []
+    return editor
 
 
 def _traceback_frame_functions(traceback: TracebackType | None) -> list[str]:

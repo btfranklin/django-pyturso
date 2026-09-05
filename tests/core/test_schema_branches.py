@@ -60,10 +60,12 @@ class _Connection:
 
 
 def _editor(wrapper: Any | None = None) -> DatabaseSchemaEditor:
-    return DatabaseSchemaEditor(
+    editor = DatabaseSchemaEditor(
         wrapper or _Connection(),  # type: ignore[arg-type]
         atomic=False,
     )
+    editor.deferred_sql = []
+    return editor
 
 
 def _hashable(**attributes: Any) -> Any:

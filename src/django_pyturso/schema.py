@@ -100,17 +100,21 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        check_error: BaseException | None = None
-        check_traceback: TracebackType | None = None
+        schema_error: BaseException | None = None
+        schema_traceback: TracebackType | None = None
         if exc_type is None:
             try:
+                # Run deferred DDL here so its errors reach the atomic exit.
+                deferred_sql, self.deferred_sql = self.deferred_sql, []
+                for sql in deferred_sql:
+                    self.execute(sql, None)
                 self.connection.check_constraints()
             except BaseException as error:
-                check_error = error
-                check_traceback = error.__traceback__
+                schema_error = error
+                schema_traceback = error.__traceback__
                 exc_type = type(error)
                 exc_value = error
-                traceback = check_traceback
+                traceback = schema_traceback
 
         exit_error: BaseException | None = None
         try:
@@ -121,15 +125,15 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         try:
             self._restore_foreign_key_state()
         except BaseException as restoration:
-            primary = exit_error or check_error or exc_value
+            primary = exit_error or schema_error or exc_value
             if primary is not None:
                 raise primary.with_traceback(primary.__traceback__) from restoration
             raise
 
         if exit_error is not None:
             raise exit_error.with_traceback(exit_error.__traceback__)
-        if check_error is not None:
-            raise check_error.with_traceback(check_traceback)
+        if schema_error is not None:
+            raise schema_error.with_traceback(schema_traceback)
 
     def quote_value(self, value: Any) -> str:
         """Quote a Python value without stdlib SQLite adapter registration."""

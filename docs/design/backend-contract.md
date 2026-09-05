@@ -49,6 +49,8 @@ switches, and are covered by focused tests.
   supported only without conversion or in UTC.
 - Duration values are stored as integer microseconds, but duration arithmetic
   and temporal subtraction are not supported in v1.
+- Bitwise XOR expressions are rejected before SQL execution. Bitwise AND, OR,
+  and shifts remain supported.
 - Window expressions, select-for-update, generated columns, database comments,
   deferrable unique constraints, covering indexes, and other capabilities
   declared false in `features.py` are not supported merely because a narrow SQL

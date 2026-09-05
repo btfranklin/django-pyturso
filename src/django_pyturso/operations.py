@@ -442,7 +442,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         if connector == "^":
             return "POWER(%s)" % ",".join(sub_expressions)
         if connector == "#":
-            return "BITXOR(%s)" % ",".join(sub_expressions)
+            raise NotSupportedError("Bitwise XOR isn't supported by django-pyturso v1.")
         return super().combine_expression(connector, sub_expressions)
 
     def combine_duration_expression(self, connector: str, sub_expressions: list[str]) -> str:

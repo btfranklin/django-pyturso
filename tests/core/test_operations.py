@@ -390,7 +390,8 @@ def test_decimal_converters_cover_col_and_non_col_paths() -> None:
 def test_expression_combination_duration_rejection_and_integer_ranges() -> None:
     ops = OPS
     assert ops.combine_expression("^", ["a", "b"]) == "POWER(a,b)"
-    assert ops.combine_expression("#", ["a", "b"]) == "BITXOR(a,b)"
+    with pytest.raises(NotSupportedError, match="Bitwise XOR"):
+        ops.combine_expression("#", ["a", "b"])
     assert ops.combine_expression("+", ["a", "b"]) == "a + b"
     for connector in ("+", "-", "*", "/"):
         with pytest.raises(NotSupportedError, match="Duration arithmetic"):

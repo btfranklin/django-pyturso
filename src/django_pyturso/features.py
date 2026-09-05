@@ -49,7 +49,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     has_native_uuid_field = False
     has_native_duration_field = False
     supports_temporal_subtraction = False
-    supports_regex_backreferencing = True
+    supports_regex_backreferencing = False
     supports_date_lookup_using_string = True
     supports_timezones = False
     has_zoneinfo_database = False

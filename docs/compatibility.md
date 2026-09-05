@@ -7,6 +7,17 @@ top-level `turso.connect()` API. It verifies foreign-key enforcement and the
 connected engine version, translates Django placeholders, and exercises the
 ordinary ORM against representative scalar fields.
 
+## Regular expressions
+
+The `regex` and `iregex` lookups use Turso's native regular expression engine.
+Anchors, groups, and alternatives are supported. The `iregex` lookup enables
+case-insensitive matching.
+
+Backreferences, such as `^(a)\1$`, are not supported. The backend declares
+`supports_regex_backreferencing = False`. In pyturso 0.7.0, this pattern returns
+SQL `NULL`, so a filter does not match the row. It does not raise an error.
+Applications must use patterns that the native engine supports.
+
 ## Intentional BinaryField exclusion
 
 `pyturso` 0.7.0 does not expose the PEP 249 `Binary()` constructor. Django's

@@ -11,6 +11,7 @@ import pytest
 from django.db import NotSupportedError, connection, models
 from django.db.models import F, Value
 from django.db.models.functions import (
+    Extract,
     TruncDay,
     TruncHour,
     TruncMinute,
@@ -21,6 +22,7 @@ from django.db.models.functions import (
     TruncWeek,
     TruncYear,
 )
+from django.test import override_settings
 from django.test.utils import isolate_apps
 
 pytestmark = pytest.mark.core
@@ -118,3 +120,34 @@ def test_time_lookup_uses_python_microsecond_precision(
             assert temporal_rows.objects.filter(
                 **{f"datetime_value__time__{lookup}": rhs}
             ).count() == expected_count
+
+
+@pytest.mark.parametrize("debug", [False, True])
+@pytest.mark.parametrize(
+    ("field_name", "lookup", "expected"),
+    [
+        ("datetime_value", "year", 2026),
+        ("datetime_value", "iso_year", 2026),
+        ("datetime_value", "quarter", 3),
+        ("datetime_value", "month", 7),
+        ("datetime_value", "day", 13),
+        ("datetime_value", "week", 29),
+        ("datetime_value", "week_day", 2),
+        ("datetime_value", "iso_week_day", 1),
+        ("datetime_value", "hour", 18),
+        ("datetime_value", "minute", 42),
+        ("datetime_value", "second", 31),
+        ("date_value", "month", 7),
+        ("time_value", "hour", 18),
+    ],
+)
+def test_temporal_extraction_with_query_logging(
+    temporal_rows: Any, debug: bool, field_name: str, lookup: str, expected: int
+) -> None:
+    with override_settings(DEBUG=debug):
+        query = (
+            temporal_rows.objects.filter(pk__gte=0)
+            .order_by("pk")
+            .annotate(result=Extract(field_name, lookup_name=lookup))
+        )
+        assert list(query.values_list("result", flat=True)) == [None, expected]

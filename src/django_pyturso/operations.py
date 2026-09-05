@@ -95,16 +95,16 @@ class DatabaseOperations(BaseDatabaseOperations):
     @staticmethod
     def _extract_sql(lookup_type: str, sql: str) -> str:
         formats = {
-            "year": "%Y",
-            "iso_year": "%G",
-            "month": "%m",
-            "day": "%d",
-            "week": "%V",
-            "week_day": "%w",
-            "iso_week_day": "%u",
-            "hour": "%H",
-            "minute": "%M",
-            "second": "%S",
+            "year": "%%Y",
+            "iso_year": "%%G",
+            "month": "%%m",
+            "day": "%%d",
+            "week": "%%V",
+            "week_day": "%%w",
+            "iso_week_day": "%%u",
+            "hour": "%%H",
+            "minute": "%%M",
+            "second": "%%S",
         }
         if lookup_type == "quarter":
             return f"((CAST(strftime('%%m', {sql}) AS INTEGER) + 2) / 3)"

@@ -369,6 +369,11 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
                     model._meta.db_table, old_field, new_field, new_type
                 )
             )
+            for sql in self.deferred_sql:
+                if isinstance(sql, Statement):
+                    sql.rename_column_references(
+                        model._meta.db_table, old_field.column, new_field.column
+                    )
             return
 
         self._remake_table(model, alter_fields=[(old_field, new_field)])

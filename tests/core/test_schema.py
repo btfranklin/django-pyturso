@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 from django.db import IntegrityError, NotSupportedError, connection, models, transaction
+from django.db.migrations import Migration
 from django.db.migrations.operations import (
     AddConstraint,
     AddField,
@@ -17,6 +18,7 @@ from django.db.migrations.operations import (
     CreateModel,
     RemoveField,
     RenameField,
+    RunSQL,
 )
 from django.db.migrations.state import ProjectState
 from django.test.utils import isolate_apps
@@ -141,6 +143,54 @@ def test_deferred_ddl_failure_rolls_back_and_leaves_connection_usable(
         finally:
             with connection.cursor() as cursor:
                 cursor.execute("PRAGMA foreign_keys = ON")
+
+
+@pytest.mark.core
+@pytest.mark.parametrize("index_kind", ["field", "explicit"])
+def test_migration_renames_pending_index_columns(
+    django_db_blocker: Any, index_kind: str
+) -> None:
+    class RenameMigration(Migration):
+        operations = [
+            CreateModel(
+                name="PendingIndex",
+                fields=[
+                    ("id", models.BigAutoField(primary_key=True)),
+                    ("value", models.IntegerField(db_index=index_kind == "field")),
+                ],
+                options={
+                    "db_table": "schema_pending_index",
+                    "indexes": (
+                        [models.Index(fields=["value"], name="schema_pending_value_idx")]
+                        if index_kind == "explicit"
+                        else []
+                    ),
+                },
+            ),
+            RunSQL("INSERT INTO schema_pending_index (value) VALUES (7)"),
+            RenameField("PendingIndex", "value", "renamed"),
+        ]
+
+    migration = RenameMigration("rename_pending_index", "schema_tests")
+
+    with django_db_blocker.unblock():
+        with connection.schema_editor() as editor:
+            state = migration.apply(ProjectState(), editor)
+        model = state.apps.get_model("schema_tests", "PendingIndex")
+        try:
+            assert list(model.objects.values_list("renamed", flat=True)) == [7]
+            with connection.cursor() as cursor:
+                constraints = connection.introspection.get_constraints(
+                    cursor, model._meta.db_table
+                )
+            indexes = [details for details in constraints.values() if details["index"]]
+            assert len(indexes) == 1
+            assert indexes[0]["columns"] == ["renamed"]
+            model.objects.create(renamed=8)
+            assert model.objects.filter(renamed=8).count() == 1
+        finally:
+            with connection.schema_editor() as editor:
+                editor.delete_model(model)
 
 
 @pytest.mark.core

@@ -14,5 +14,8 @@ failure, or wrapper/engine drift forcibly disposes it.
 
 Schema editing disables and verifies foreign-key enforcement before its atomic
 DDL work, runs the backend's composite-aware manual checker before commit, and
-restores the original enforcement state. A failed restoration disposes the
-connection so it cannot be reused with constraints accidentally disabled.
+restores the original enforcement state. The manual
+checker uses the parent column type affinity and collation for each comparison,
+including references between columns with different declared types. A failed
+restoration disposes the connection so it cannot be reused with constraints
+accidentally disabled.

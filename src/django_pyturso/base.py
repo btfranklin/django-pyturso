@@ -310,8 +310,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         source_sql = [f"{child_alias}.{self.ops.quote_name(column)}" for column in source_columns]
         target_sql = [f"{parent_alias}.{self.ops.quote_name(column)}" for column in target_columns]
         nonnull_sql = " AND ".join(f"{column} IS NOT NULL" for column in source_sql)
+        # Remove child affinity so each parent column controls type conversion
+        # and collation, as it does during native foreign-key enforcement.
         join_sql = " AND ".join(
-            f"{target} = {source}" for source, target in zip(source_sql, target_sql, strict=True)
+            f"{target} = +{source}" for source, target in zip(source_sql, target_sql, strict=True)
         )
         query = (
             f"SELECT {', '.join([*identity_sql, *source_sql])} "

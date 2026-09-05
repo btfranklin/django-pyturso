@@ -179,3 +179,82 @@ def test_omitted_targets_and_quoted_unicode_identifiers(django_db_blocker: Any) 
         finally:
             cursor.execute('DROP TABLE IF EXISTS "enfant étrange"')
             cursor.execute('DROP TABLE IF EXISTS "cible étrange"')
+
+
+@pytest.mark.core
+@pytest.mark.parametrize(
+    ("parent_type", "parent_value", "child_type", "child_value", "valid"),
+    [
+        ("TEXT", "01", "INTEGER", 1, False),
+        ("TEXT", "1", "INTEGER", 1, True),
+        ("INTEGER", 1, "TEXT", "01", True),
+        ("INTEGER", 1, "TEXT", "1x", False),
+        ("REAL", 1.5, "TEXT", "1.50", True),
+        ("NUMERIC", 1, "TEXT", "01", True),
+        ("BLOB", "01", "INTEGER", 1, False),
+        ("BLOB", 1, "TEXT", "1", False),
+        ("TEXT COLLATE NOCASE", "Alpha", "TEXT COLLATE BINARY", "alpha", True),
+        ("TEXT COLLATE BINARY", "Alpha", "TEXT COLLATE NOCASE", "alpha", False),
+        ("TEXT COLLATE RTRIM", "alpha", "TEXT", "alpha ", True),
+    ],
+)
+def test_manual_checker_matches_native_parent_affinity_and_collation(
+    django_db_blocker: Any,
+    parent_type: str,
+    parent_value: Any,
+    child_type: str,
+    child_value: Any,
+    valid: bool,
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE fk_affinity_parent (key {parent_type} PRIMARY KEY)")
+        cursor.execute(
+            f"CREATE TABLE fk_affinity_child (key {child_type} "
+            "REFERENCES fk_affinity_parent(key))"
+        )
+        try:
+            cursor.execute("INSERT INTO fk_affinity_parent VALUES (%s)", [parent_value])
+            insert = "INSERT INTO fk_affinity_child VALUES (%s)"
+            if valid:
+                cursor.execute(insert, [child_value])
+            else:
+                with pytest.raises(IntegrityError):
+                    cursor.execute(insert, [child_value])
+            cursor.execute("DELETE FROM fk_affinity_child")
+
+            with connection.constraint_checks_disabled():
+                cursor.execute(insert, [child_value])
+            if valid:
+                connection.check_constraints(["fk_affinity_child"])
+            else:
+                with pytest.raises(IntegrityError, match="fk_affinity_child"):
+                    connection.check_constraints(["fk_affinity_child"])
+        finally:
+            cursor.execute("DROP TABLE fk_affinity_child")
+            cursor.execute("DROP TABLE fk_affinity_parent")
+
+
+@pytest.mark.core
+def test_schema_editor_rolls_back_reference_with_wrong_parent_affinity(
+    django_db_blocker: Any,
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute("CREATE TABLE fk_migration_parent (key TEXT PRIMARY KEY)")
+        cursor.execute("INSERT INTO fk_migration_parent VALUES ('01')")
+        try:
+            with pytest.raises(IntegrityError, match="fk_migration_child"):
+                with connection.schema_editor() as editor:
+                    editor.execute(
+                        "CREATE TABLE fk_migration_child "
+                        "(key INTEGER REFERENCES fk_migration_parent(key))"
+                    )
+                    editor.execute("INSERT INTO fk_migration_child VALUES (1)")
+            assert "fk_migration_child" not in connection.introspection.table_names()
+            assert not connection.in_atomic_block
+            assert connection.get_autocommit()
+            assert _foreign_key_state() == 1
+            cursor.execute("SELECT key FROM fk_migration_parent")
+            assert cursor.fetchall() == [("01",)]
+        finally:
+            cursor.execute("DROP TABLE IF EXISTS fk_migration_child")
+            cursor.execute("DROP TABLE fk_migration_parent")

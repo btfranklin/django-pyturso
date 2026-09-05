@@ -141,7 +141,7 @@ def test_foreign_key_check_uses_quoted_child_and_parent_aliases(
         '"django_pyturso_child" WHERE '
         '"django_pyturso_child"."parent_id" IS NOT NULL AND NOT EXISTS '
         '(SELECT 1 FROM "parent" AS "django_pyturso_parent" WHERE '
-        '"django_pyturso_parent"."id" = '
+        '"django_pyturso_parent"."id" = +'
         '"django_pyturso_child"."parent_id") LIMIT 1'
     ]
 

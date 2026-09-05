@@ -52,7 +52,9 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_regex_backreferencing = False
     supports_date_lookup_using_string = True
     supports_timezones = False
-    has_zoneinfo_database = False
+    # Unsupported zones fail before SQL. NULL must remain a valid truncation
+    # result rather than Django's missing-zone-data error signal.
+    has_zoneinfo_database = True
     requires_explicit_null_ordering_when_grouping = False
     nulls_order_largest = False
     supports_order_by_nulls_modifier = True

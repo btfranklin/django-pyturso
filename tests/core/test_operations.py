@@ -162,7 +162,7 @@ def test_unknown_extract_and_named_timezone_are_rejected() -> None:
 def test_every_date_truncation_path_executes(lookup: str, expected: str) -> None:
     sample = "2026-07-13"
     sql, params = OPS.date_trunc_sql(lookup.upper(), "%s", (sample,), None)
-    expected_params = (sample, sample) if lookup in {"quarter", "week"} else (sample,)
+    expected_params = (sample,) * {"quarter": 3, "week": 2}.get(lookup, 1)
     assert params == expected_params
     assert _raw_scalar(sql, params) == expected
 
@@ -183,7 +183,7 @@ def test_every_date_truncation_path_executes(lookup: str, expected: str) -> None
 def test_every_datetime_truncation_path_executes(lookup: str, expected: str) -> None:
     sample = "2026-07-13 18:42:31.123456"
     sql, params = OPS.datetime_trunc_sql(lookup, "%s", (sample,), "UTC")
-    expected_params = (sample, sample) if lookup == "week" else (sample,)
+    expected_params = (sample, sample)
     assert params == expected_params
     assert _raw_scalar(sql, params) == expected
 
@@ -195,7 +195,7 @@ def test_every_datetime_truncation_path_executes(lookup: str, expected: str) -> 
 def test_every_time_truncation_path_executes(lookup: str, expected: str) -> None:
     sample = "18:42:31.123456"
     sql, params = OPS.time_trunc_sql(lookup, "%s", (sample,), None)
-    assert params == (sample,)
+    assert params == (sample, sample)
     assert _raw_scalar(sql, params) == expected
 
 

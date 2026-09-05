@@ -11,6 +11,12 @@ boundaries; ordinary Django defaults remain ordinary defaults. These values are
 never changed by connection state, environment variables, database settings,
 or installed engine functions.
 
+Temporal operations reject unsupported timezones before SQL execution. The
+backend sets Django's `has_zoneinfo_database` flag to true so a valid `NULL`
+truncation result does not trigger Django's missing-timezone-data error. This
+flag does not enable named timezone conversion; only UTC or no conversion is
+supported.
+
 Turso-specific ORM integrations are outside the v1 package surface. When a
 future integration is ready, it must ship as an ordinary documented API with a
 complete support contract; it must not be hidden behind runtime configuration.

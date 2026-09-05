@@ -145,10 +145,11 @@ class DatabaseOperations(BaseDatabaseOperations):
             result = f"date({sql}, 'start of year')"
         elif lookup_type == "quarter":
             result = (
+                f"CASE WHEN {sql} IS NULL THEN NULL ELSE "
                 f"printf('%%04d-%%02d-01', CAST(strftime('%%Y', {sql}) AS INTEGER), "
-                f"((CAST(strftime('%%m', {sql}) AS INTEGER) - 1) / 3) * 3 + 1)"
+                f"((CAST(strftime('%%m', {sql}) AS INTEGER) - 1) / 3) * 3 + 1) END"
             )
-            result_params *= 2
+            result_params *= 3
         elif lookup_type == "month":
             result = f"date({sql}, 'start of month')"
         elif lookup_type == "week":
@@ -183,7 +184,8 @@ class DatabaseOperations(BaseDatabaseOperations):
         if lookup_type not in supported:
             raise NotSupportedError(f"Unsupported datetime truncation: {lookup_type}.")
         parsed = self._time_extension_input(sql)
-        return self._format_time_extension(f"time_trunc({parsed}, '{lookup_type}')"), tuple(params)
+        result = self._format_time_extension(f"time_trunc({parsed}, '{lookup_type}')")
+        return f"CASE WHEN {sql} IS NULL THEN NULL ELSE {result} END", tuple(params) * 2
 
     def time_trunc_sql(  # type: ignore[override]
         self,
@@ -198,7 +200,8 @@ class DatabaseOperations(BaseDatabaseOperations):
             raise NotSupportedError(f"Unsupported time truncation: {lookup_type}.")
         parsed = self._time_extension_input(sql, time_only=True)
         truncated = f"time_trunc({parsed}, '{lookup_type}')"
-        return self._format_time_extension(truncated, time_only=True), tuple(params)
+        result = self._format_time_extension(truncated, time_only=True)
+        return f"CASE WHEN {sql} IS NULL THEN NULL ELSE {result} END", tuple(params) * 2
 
     def datetime_cast_date_sql(
         self, sql: str, params: Sequence[Any], tzname: str | None
@@ -212,7 +215,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         self._validate_timezone(tzname)
         parsed = self._time_extension_input(sql)
         formatted = self._format_time_extension(parsed, time_only=True)
-        return formatted, tuple(params)
+        return f"CASE WHEN {sql} IS NULL THEN NULL ELSE {formatted} END", tuple(params) * 2
 
     def format_for_duration_arithmetic(self, sql: str) -> str:
         return sql

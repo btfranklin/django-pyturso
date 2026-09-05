@@ -35,7 +35,6 @@ def test_high_risk_conservative_values_match_the_v1_contract() -> None:
         "has_native_duration_field": False,
         "has_native_uuid_field": False,
         "has_select_for_update": False,
-        "has_zoneinfo_database": False,
         "supports_aggregate_distinct_multiple_argument": False,
         "supports_aggregate_filter_clause": False,
         "supports_aggregate_order_by_clause": False,

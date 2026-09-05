@@ -17,6 +17,9 @@ truncation result does not trigger Django's missing-timezone-data error. This
 flag does not enable named timezone conversion; only UTC or no conversion is
 supported.
 
+Time extraction preserves Python's six-digit microsecond precision. Its SQL
+text representation matches stored `TimeField` values and bound time values.
+
 Turso-specific ORM integrations are outside the v1 package surface. When a
 future integration is ready, it must ship as an ordinary documented API with a
 complete support contract; it must not be hidden behind runtime configuration.

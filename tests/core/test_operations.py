@@ -220,7 +220,7 @@ def test_temporal_truncation_rejections_and_casts() -> None:
     time_sql, time_params = ops.datetime_cast_time_sql("%s", (sample,), None)
     assert _raw_scalar(date_sql, date_params) == "2026-07-13"
     raw_time = _raw_scalar(time_sql, time_params)
-    assert raw_time == "18:42:31.123456000"
+    assert raw_time == "18:42:31.123456"
     assert parse_time(raw_time) == datetime.time(18, 42, 31, 123456)
     with pytest.raises(NotSupportedError, match="without timezone conversion"):
         ops.datetime_cast_date_sql("field", (), "Asia/Tokyo")

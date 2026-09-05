@@ -170,7 +170,8 @@ class DatabaseOperations(BaseDatabaseOperations):
     @staticmethod
     def _format_time_extension(sql: str, *, time_only: bool = False) -> str:
         formatted = f"RTRIM(REPLACE(time_fmt_iso({sql}), 'T', ' '), 'Z')"
-        return f"SUBSTR({formatted}, 12)" if time_only else formatted
+        # Python time values use at most six fractional digits.
+        return f"SUBSTR({formatted}, 12, 15)" if time_only else formatted
 
     def datetime_trunc_sql(  # type: ignore[override]
         self, lookup_type: str, sql: str, params: Sequence[Any], tzname: str | None

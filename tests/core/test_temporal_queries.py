@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from django.db import NotSupportedError, connection, models
-from django.db.models import Value
+from django.db.models import F, Value
 from django.db.models.functions import (
     TruncDay,
     TruncHour,
@@ -103,3 +103,18 @@ def test_nullable_truncation_still_rejects_named_timezone(temporal_rows: Any) ->
     expression = TruncHour("datetime_value", tzinfo=ZoneInfo("America/Phoenix"))
     with pytest.raises(NotSupportedError, match="without timezone conversion"):
         list(temporal_rows.objects.annotate(result=expression).values_list("result", flat=True))
+
+
+@pytest.mark.parametrize("microsecond", [0, 1, 100000, 123456, 999999])
+def test_time_lookup_uses_python_microsecond_precision(
+    temporal_rows: Any, microsecond: int
+) -> None:
+    moment = MOMENT.replace(microsecond=microsecond)
+    temporal_rows.objects.filter(datetime_value__isnull=False).update(
+        datetime_value=moment, time_value=moment.time()
+    )
+    for rhs in [moment.time(), F("time_value")]:
+        for lookup, expected_count in [("exact", 1), ("gt", 0), ("gte", 1), ("lt", 0), ("lte", 1)]:
+            assert temporal_rows.objects.filter(
+                **{f"datetime_value__time__{lookup}": rhs}
+            ).count() == expected_count

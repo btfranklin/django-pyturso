@@ -300,6 +300,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None, Any]:
         token = None
         is_constraint_definition = None
+        is_named_constraint = False
         field_name = None
         constraint_name = None
         unique = False
@@ -317,11 +318,14 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             elif braces_deep == 0 and token.match(sqlparse.tokens.Punctuation, ","):
                 break
             if is_constraint_definition is None:
-                is_constraint_definition = token.match(sqlparse.tokens.Keyword, "CONSTRAINT")
-                if is_constraint_definition:
+                is_named_constraint = token.match(sqlparse.tokens.Keyword, "CONSTRAINT")
+                is_constraint_definition = is_named_constraint or token.match(
+                    sqlparse.tokens.Keyword, "UNIQUE"
+                )
+                if is_named_constraint:
                     continue
             if is_constraint_definition:
-                if constraint_name is None:
+                if is_named_constraint and constraint_name is None:
                     if token.ttype in (sqlparse.tokens.Name, sqlparse.tokens.Keyword):
                         constraint_name = token.value
                     elif token.ttype == sqlparse.tokens.Literal.String.Symbol:

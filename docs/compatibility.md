@@ -43,3 +43,9 @@ therefore cannot recognize it. The backend translates only this audited
 connection-open defect into Django `OperationalError`, preserving the original
 exception as its cause. Other driver exceptions continue through Django's
 normal wrapper without a backend translation layer.
+
+## Schema introspection
+
+Introspection preserves the column order in named and unnamed table-level
+`UNIQUE` constraints. The `inspectdb` command includes composite uniqueness
+rules in the generated model's `unique_together` setting.

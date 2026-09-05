@@ -1,11 +1,13 @@
 """Turso-backed schema introspection tests."""
 
 from collections.abc import Iterator
+from io import StringIO
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import sqlparse
+from django.core.management import call_command
 from django.db import DatabaseError, connection
 
 from django_pyturso.base import DatabaseWrapper
@@ -395,3 +397,61 @@ def test_introspection_omitted_target_mismatch_is_an_error(
     rows = [(0, 0, "target", "left", None), (0, 1, "target", "right", None)]
     with pytest.raises(DatabaseError, match="Cannot resolve foreign key target columns"):
         introspection._resolve_foreign_key_target_columns(SimpleNamespace(), "target", rows)
+
+
+@pytest.mark.core
+@pytest.mark.parametrize("constraint_prefix", ["", "CONSTRAINT pair_unique "])
+def test_table_unique_constraints_preserve_columns_and_inspectdb_output(
+    django_db_blocker: Any,
+    constraint_prefix: str,
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE TABLE intro_table_unique ("
+            "id INTEGER PRIMARY KEY, a INTEGER, b TEXT, code TEXT UNIQUE, "
+            f"{constraint_prefix}UNIQUE (a, b))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(cursor, "intro_table_unique")
+            unique_columns = [
+                constraint["columns"]
+                for constraint in constraints.values()
+                if constraint["unique"]
+            ]
+            assert unique_columns == [["code"], ["a", "b"]]
+            output = StringIO()
+            call_command("inspectdb", "intro_table_unique", stdout=output)
+            generated_model = output.getvalue()
+            assert "unique_together = (('a', 'b'),)" in generated_model
+            assert "code = models.TextField(unique=True" in generated_model
+        finally:
+            cursor.execute("DROP TABLE intro_table_unique")
+
+
+@pytest.mark.parametrize(
+    ("definition", "expected_columns"),
+    [
+        ("UNIQUE (a, b)", ["a", "b"]),
+        ("UNIQUE (b, a)", ["b", "a"]),
+        ("UNIQUE (a)", ["a"]),
+        ('UNIQUE ("a", "quoted field")', ["a", "quoted field"]),
+    ],
+)
+def test_unnamed_table_unique_parser_preserves_column_order(
+    definition: str,
+    expected_columns: list[str],
+) -> None:
+    constraints = DatabaseIntrospection._parse_table_constraints(
+        f'CREATE TABLE sample (a INTEGER, b TEXT, "quoted field" TEXT, {definition})',
+        {"a", "b", "quoted field"},
+    )
+    assert len(constraints) == 1
+    constraint = next(iter(constraints.values()))
+    assert constraint == {
+        "columns": expected_columns,
+        "unique": True,
+        "primary_key": False,
+        "foreign_key": None,
+        "check": False,
+        "index": False,
+    }

@@ -255,8 +255,10 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             ]
         constraints = list(model._meta.constraints)
 
-        body_copy = copy.deepcopy(body)
-        meta_contents = {
+        # Register the original-table model in the temporary app registry.
+        # This lets relations resolve when the replacement model is built.
+        original_body = copy.deepcopy(body)
+        original_meta_contents = {
             "app_label": model._meta.app_label,
             "db_table": model._meta.db_table,
             "unique_together": unique_together,
@@ -264,13 +266,13 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             "constraints": constraints,
             "apps": apps,
         }
-        meta = type("Meta", (), meta_contents)
-        body_copy["Meta"] = meta
-        body_copy["__module__"] = model.__module__
-        type(model._meta.object_name, model.__bases__, body_copy)
+        original_meta = type("Meta", (), original_meta_contents)
+        original_body["Meta"] = original_meta
+        original_body["__module__"] = model.__module__
+        type(model._meta.object_name, model.__bases__, original_body)
 
-        body_copy = copy.deepcopy(body)
-        meta_contents = {
+        replacement_body = copy.deepcopy(body)
+        replacement_meta_contents = {
             "app_label": model._meta.app_label,
             "db_table": "new__%s" % strip_quotes(model._meta.db_table),
             "unique_together": unique_together,
@@ -278,11 +280,11 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             "constraints": constraints,
             "apps": apps,
         }
-        meta = type("Meta", (), meta_contents)
-        body_copy["Meta"] = meta
-        body_copy["__module__"] = model.__module__
+        replacement_meta = type("Meta", (), replacement_meta_contents)
+        replacement_body["Meta"] = replacement_meta
+        replacement_body["__module__"] = model.__module__
         new_model: Any = type(
-            "New%s" % model._meta.object_name, model.__bases__, body_copy
+            "New%s" % model._meta.object_name, model.__bases__, replacement_body
         )
 
         if delete_field and delete_field.attname == new_model._meta.pk.attname:

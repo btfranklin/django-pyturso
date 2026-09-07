@@ -40,4 +40,5 @@ execution.
 
 `pdm run build` creates the wheel and source distribution. `pdm run package-test`
 checks their metadata and clean-installs each artifact into a temporary Django
-project using both an in-memory and a file database.
+project using both an in-memory and a file database. The installed-package
+example in `scripts/package_smoke.py` is copied into each temporary project.

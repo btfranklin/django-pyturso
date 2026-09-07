@@ -38,7 +38,7 @@ fallback_version = "0.0.0"
 
 [tool.pdm.scripts]
 lint = "ruff check ."
-typecheck = "mypy src tests"
+typecheck = "mypy src tests scripts"
 test = "pytest"
 test-fast = "pytest --maxfail=1 -m 'not integration and not stress'"
 test-differential = "pytest -m differential"
@@ -70,7 +70,7 @@ select = ["E", "F", "W", "I"]
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 plugins = ["mypy_django_plugin.main"]
 
 [tool.django-stubs]

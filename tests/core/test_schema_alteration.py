@@ -11,10 +11,10 @@ from django.db import models
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.models.functions import Lower
 
-from tests.core.test_schema_branches import (
-    _editor,
-    _hashable,
-    _many_to_many_field,
+from tests.schema_support import (
+    hashable_namespace,
+    many_to_many_field,
+    schema_editor,
 )
 
 pytestmark = pytest.mark.core
@@ -33,7 +33,7 @@ def _field(*, column: str, remote_field: object | None = None) -> Any:
 def test_equivalent_column_rename_uses_exact_fast_path_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    editor = _editor()
+    editor = schema_editor()
     model = SimpleNamespace(_meta=SimpleNamespace(db_table="records"))
     old_field = _field(column="old_code")
     new_field = _field(column="new_code")
@@ -63,7 +63,7 @@ def test_equivalent_column_rename_uses_exact_fast_path_contract(
 def test_constrained_relation_rename_requires_table_remake(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    editor = _editor()
+    editor = schema_editor()
     model = SimpleNamespace(_meta=SimpleNamespace(db_table="records"))
     old_field = _field(column="old_parent_id", remote_field=object())
     new_field = _field(column="new_parent_id")
@@ -80,8 +80,8 @@ def test_constrained_relation_rename_requires_table_remake(
 
 
 def _related_unique_fields(*, unique: bool) -> tuple[Any, Any, Any, Any]:
-    model = _hashable(name="owner")
-    related = _hashable(name="related")
+    model = hashable_namespace(name="owner")
+    related = hashable_namespace(name="related")
     opts = SimpleNamespace(
         related_objects=[
             SimpleNamespace(
@@ -114,7 +114,7 @@ def test_unique_collation_change_remakes_related_table(
     old_params: dict[str, str],
     new_params: dict[str, str],
 ) -> None:
-    editor = _editor()
+    editor = schema_editor()
     model, related, old_field, new_field = _related_unique_fields(unique=True)
     remake = MagicMock()
     monkeypatch.setattr(editor, "_remake_table", remake)
@@ -138,7 +138,7 @@ def test_unique_collation_change_remakes_related_table(
 def test_nonunique_type_change_does_not_remake_related_table(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    editor = _editor()
+    editor = schema_editor()
     model, _related, old_field, new_field = _related_unique_fields(unique=False)
     remake = MagicMock()
     monkeypatch.setattr(editor, "_remake_table", remake)
@@ -159,7 +159,7 @@ def test_nonunique_type_change_does_not_remake_related_table(
 def test_same_table_many_to_many_remake_receives_exact_field_pairs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    editor = _editor()
+    editor = schema_editor()
     remake = MagicMock()
     monkeypatch.setattr(editor, "_remake_table", remake)
     old_local, old_reverse = object(), object()
@@ -181,8 +181,8 @@ def test_same_table_many_to_many_remake_receives_exact_field_pairs(
 
     editor._alter_many_to_many(
         SimpleNamespace(),
-        _many_to_many_field(old_through, "local", "reverse"),
-        _many_to_many_field(new_through, "local", "reverse"),
+        many_to_many_field(old_through, "local", "reverse"),
+        many_to_many_field(new_through, "local", "reverse"),
         strict=False,
     )
 
@@ -198,7 +198,7 @@ def test_same_table_many_to_many_remake_receives_exact_field_pairs(
 def test_different_table_many_to_many_uses_exact_copy_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    editor = _editor()
+    editor = schema_editor()
     old_through = SimpleNamespace(_meta=SimpleNamespace(db_table="old_join"))
     new_through = SimpleNamespace(_meta=SimpleNamespace(db_table="new_join"))
     create = MagicMock()
@@ -211,8 +211,8 @@ def test_different_table_many_to_many_uses_exact_copy_contract(
 
     editor._alter_many_to_many(
         SimpleNamespace(),
-        _many_to_many_field(old_through, "old_local", "old_reverse"),
-        _many_to_many_field(new_through, "new_local", "new_reverse"),
+        many_to_many_field(old_through, "old_local", "old_reverse"),
+        many_to_many_field(new_through, "new_local", "new_reverse"),
         strict=False,
     )
 
@@ -245,7 +245,7 @@ def test_specialized_unique_constraints_delegate_to_base(
     monkeypatch: pytest.MonkeyPatch,
     constraint: Any,
 ) -> None:
-    editor = _editor()
+    editor = schema_editor()
     model = SimpleNamespace()
     remake = MagicMock()
     monkeypatch.setattr(editor, "_remake_table", remake)

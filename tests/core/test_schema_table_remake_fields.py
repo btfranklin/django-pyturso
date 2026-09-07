@@ -2,26 +2,18 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from django.db import connection, models
+from django.db import models
 from django.test.utils import isolate_apps
 
 from django_pyturso.schema import DatabaseSchemaEditor
+from tests.schema_support import hashable_namespace, remake_editor
 
 pytestmark = pytest.mark.core
-
-
-def _editor(monkeypatch: pytest.MonkeyPatch) -> DatabaseSchemaEditor:
-    editor = DatabaseSchemaEditor(connection, atomic=False)
-    monkeypatch.setattr(editor, "create_model", MagicMock())
-    monkeypatch.setattr(editor, "execute", MagicMock())
-    monkeypatch.setattr(editor, "delete_model", MagicMock())
-    monkeypatch.setattr(editor, "alter_db_table", MagicMock())
-    editor.deferred_sql = []
-    return editor
 
 
 def _created_model(editor: DatabaseSchemaEditor) -> Any:
@@ -48,7 +40,7 @@ def test_remake_preserves_composite_primary_key(
             app_label = "remake_schema"
             db_table = "remake_composite"
 
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record)
 
@@ -56,6 +48,41 @@ def test_remake_preserves_composite_primary_key(
     assert isinstance(remade._meta.pk, models.CompositePrimaryKey)
     assert remade._meta.pk.name == "pk"
     assert tuple(remade._meta.pk.field_names) == ("tenant_id", "record_id")
+
+
+@isolate_apps()
+def test_remake_covers_composite_generated_and_database_default_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CompositeRecord(models.Model):
+        tenant_id = models.IntegerField()
+        record_id = models.IntegerField()
+        pk = models.CompositePrimaryKey("tenant_id", "record_id")
+        nullable_value = models.IntegerField(null=True)
+
+        class Meta:
+            app_label = "schema_branches"
+            db_table = "branch_composite"
+
+    editor, _delete = remake_editor(monkeypatch)
+    db_default_field = models.IntegerField(db_default=5)
+    db_default_field.set_attributes_from_name("with_database_default")
+    editor._remake_table(CompositeRecord, create_field=db_default_field)
+
+    old_nullable = CompositeRecord._meta.get_field("nullable_value")
+    nonnull = models.IntegerField(db_default=9)
+    nonnull.set_attributes_from_name("nullable_value")
+    nonnull.model = CompositeRecord
+    editor._remake_table(CompositeRecord, alter_fields=[(old_nullable, nonnull)])
+
+    generated = models.GeneratedField(
+        expression=models.F("tenant_id") + models.F("record_id"),
+        output_field=models.IntegerField(),
+        db_persist=True,
+    )
+    generated.set_attributes_from_name("nullable_value")
+    generated.model = CompositeRecord
+    editor._remake_table(CompositeRecord, alter_fields=[(old_nullable, generated)])
 
 
 @isolate_apps()
@@ -72,7 +99,7 @@ def test_remake_new_primary_key_replaces_automatic_key_without_mutating_source(
     original_pk = Record._meta.pk
     replacement = models.IntegerField(default=7, primary_key=True)
     replacement.set_attributes_from_name("replacement_id")
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record, create_field=replacement)
 
@@ -84,6 +111,33 @@ def test_remake_new_primary_key_replaces_automatic_key_without_mutating_source(
     ]
     assert original_pk.primary_key is True
     assert original_pk.model is Record
+
+
+@isolate_apps()
+def test_remake_primary_key_failure_does_not_mutate_original_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Record(models.Model):
+        old_key = models.IntegerField(primary_key=True)
+
+        class Meta:
+            app_label = "schema_branches"
+            db_table = "branch_primary_failure"
+
+    editor, _delete = remake_editor(monkeypatch)
+    original_pk = Record._meta.pk
+    replacement = models.IntegerField(default=7, primary_key=True)
+    replacement.set_attributes_from_name("replacement_id")
+    monkeypatch.setattr(
+        editor,
+        "create_model",
+        MagicMock(side_effect=RuntimeError("injected create failure")),
+    )
+
+    with pytest.raises(RuntimeError, match="injected create failure"):
+        editor._remake_table(Record, create_field=replacement)
+
+    assert original_pk.primary_key
 
 
 @isolate_apps()
@@ -101,7 +155,7 @@ def test_remake_new_primary_key_demotes_explicit_source_key(
     original_pk = Record._meta.pk
     replacement = models.IntegerField(default=7, primary_key=True)
     replacement.set_attributes_from_name("replacement_id")
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record, create_field=replacement)
 
@@ -129,7 +183,7 @@ def test_remake_altered_primary_key_remains_the_primary_key(
     new_field = models.BigIntegerField(primary_key=True)
     new_field.set_attributes_from_name("key")
     new_field.model = Record
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record, alter_fields=[(old_field, new_field)])
 
@@ -157,7 +211,7 @@ def test_remake_altering_another_field_to_primary_key_demotes_the_old_key(
     new_field.set_attributes_from_name("replacement")
     new_field.model = Record
     original_pk = Record._meta.pk
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record, alter_fields=[(old_field, new_field)])
 
@@ -185,7 +239,7 @@ def test_remake_renamed_field_replaces_body_and_maps_the_source_column(
     new_field = models.IntegerField()
     new_field.set_attributes_from_name("new_name")
     new_field.model = Record
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record, alter_fields=[(old_field, new_field)])
 
@@ -215,7 +269,7 @@ def test_remake_database_default_field_is_not_copied_from_source(
 
     added = models.IntegerField(db_default=5)
     added.set_attributes_from_name("with_database_default")
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record, create_field=added)
 
@@ -240,7 +294,7 @@ def test_remake_nullable_to_required_uses_the_effective_default(
     new_field = models.IntegerField(default=17)
     new_field.set_attributes_from_name("value")
     new_field.model = Record
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
     prepare_default = MagicMock(return_value="17")
     monkeypatch.setattr(editor, "prepare_default", prepare_default)
 
@@ -266,10 +320,32 @@ def test_remake_required_field_does_not_use_coalesce(
     new_field = models.BigIntegerField()
     new_field.set_attributes_from_name("value")
     new_field.model = Record
-    editor = _editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
 
     editor._remake_table(Record, alter_fields=[(old_field, new_field)])
 
     sql = _first_executed_sql(editor)
     assert "coalesce" not in sql
     assert 'SELECT "id", "value" FROM "remake_required"' in sql
+
+
+@isolate_apps()
+def test_remake_many_to_many_delete_short_circuits_to_through_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Record(models.Model):
+        value = models.CharField(max_length=20)
+
+        class Meta:
+            app_label = "schema_branches"
+            db_table = "branch_many_delete"
+
+    editor, delete = remake_editor(monkeypatch)
+    field = Record._meta.get_field("value")
+    through = hashable_namespace(_meta=SimpleNamespace(auto_created=True))
+    monkeypatch.setattr(field, "many_to_many", True)
+    monkeypatch.setattr(field, "remote_field", SimpleNamespace(through=through))
+
+    editor._remake_table(Record, delete_field=field)
+
+    delete.assert_called_once_with(through)

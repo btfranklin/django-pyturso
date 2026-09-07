@@ -17,6 +17,11 @@ area:
 - `pdm run test-stress` exercises bounded file lifecycle and crash recovery
   checks.
 
+Schema tests keep real migration behavior in `test_schema.py` and the migration
+corpus. Focused table-remake tests cover fields, options, and finalization.
+`test_schema_branches.py` covers branch selection, and `test_schema_alteration.py`
+covers schema changes. Shared schema test helpers are in `tests/schema_support.py`.
+
 ## Differential scenarios
 
 The differential lane starts isolated processes for Django's SQLite backend and

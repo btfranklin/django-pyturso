@@ -9,7 +9,7 @@ import pytest
 from django.db import models
 from django.test.utils import isolate_apps
 
-from tests.core.test_schema_branches import _remake_editor
+from tests.schema_support import remake_editor
 
 pytestmark = pytest.mark.core
 
@@ -25,7 +25,7 @@ def test_remake_uses_exact_temporary_model_and_finalization_calls(
             app_label = "schema_remake_finalize"
             db_table = "remake_finalize_record"
 
-    editor, delete = _remake_editor(monkeypatch)
+    editor, delete = remake_editor(monkeypatch)
     create = MagicMock()
     alter = MagicMock()
     monkeypatch.setattr(editor, "create_model", create)
@@ -55,7 +55,7 @@ def test_deleting_automatic_primary_key_clears_recreated_model_pk(
             app_label = "schema_remake_finalize"
             db_table = "remake_finalize_primary_delete"
 
-    editor, _delete = _remake_editor(monkeypatch)
+    editor, _delete = remake_editor(monkeypatch)
     create = MagicMock()
     monkeypatch.setattr(editor, "create_model", create)
 

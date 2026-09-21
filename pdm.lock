@@ -4,8 +4,8 @@
 [metadata]
 groups = ["default", "dev"]
 strategy = ["inherit_metadata"]
-lock_version = "4.5.0"
-content_hash = "sha256:0fae71c2d10d78c5b45ed3a7fe5077ff522a1491f33f5cc58899b6b10d18c3d5"
+lock_version = "4.5.1"
+content_hash = "sha256:ffa71557e3d9fff41dd6fa1b1a460dc05c8f1c95b981328b6d1c4e4f9b94bdb7"
 
 [[metadata.targets]]
 requires_python = ">=3.14"
@@ -408,7 +408,7 @@ files = [
 
 [[package]]
 name = "pyturso"
-version = "0.7.0"
+version = "0.7.2"
 requires_python = ">=3.10"
 summary = "Turso is a work-in-progress, in-process OLTP database management system, compatible with SQLite."
 groups = ["default"]
@@ -416,11 +416,11 @@ dependencies = [
     "typing-extensions!=4.7.0,>=4.6.0",
 ]
 files = [
-    {file = "pyturso-0.7.0-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:ccaeb088663c90ea90d33beab29986d5591ed05637dd49cae97ebb946bdf6b9b"},
-    {file = "pyturso-0.7.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:d6207c7629448a2b1fc51bc554668ec39a04ccf02b410cbb8dd0a2a23614874e"},
-    {file = "pyturso-0.7.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:8649b23b7329a8f92f76efb014e0ca03180b9b8a16705667fa5f3836cfdf02a4"},
-    {file = "pyturso-0.7.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0d79040fa12992b7f4449f95a3d7ea248d8cffeebec52fd838fa263179f1f84c"},
-    {file = "pyturso-0.7.0.tar.gz", hash = "sha256:bf599d3416980c6989bd430f108c2515cb9e61e80acdc4abedbf83e93b8dcef8"},
+    {file = "pyturso-0.7.2-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:5399a4f500733bac23ccb89398fd0f6003e272a760dcb677a785ac2d32e69e20"},
+    {file = "pyturso-0.7.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:ccae747300b7cc7f3e815dbbce3ca66bca489c9ab81e5f4bc9e3ac973a59501b"},
+    {file = "pyturso-0.7.2-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:76df85d56c485ff170542321a20fd73a72c6995264753c39952fe482d778de08"},
+    {file = "pyturso-0.7.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e324ccdf1b9d718abbb26a789ba061d554bb8a7c3fca162fdafdb398dee10aeb"},
+    {file = "pyturso-0.7.2.tar.gz", hash = "sha256:4d912f53338af195c3bc343b02c4450ae1a0be9892835aa7f962ec49b730ef9f"},
 ]
 
 [[package]]

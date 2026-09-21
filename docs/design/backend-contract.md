@@ -4,7 +4,7 @@ This is the authoritative v1 product boundary for `django-pyturso`.
 
 ## Runtime and dependency boundary
 
-- CPython `>=3.14`, Django `>=6.0.7`, and audited `pyturso>=0.7.0`.
+- CPython `>=3.14`, Django `>=6.0.7`, and audited `pyturso>=0.7.2`.
 - Synchronous connections opened only with the real top-level
   `turso.connect()` API supplied by `pyturso`.
 - Local filesystem paths and exactly `:memory:`. Relative paths, absolute paths,

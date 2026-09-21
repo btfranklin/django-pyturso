@@ -88,7 +88,7 @@ def _verify_archive(artifact: Path) -> Message:
         ):
             raise RuntimeError(f"{artifact.name} has incorrect Django requirement")
         if not any(
-            value.startswith("pyturso") and value == "pyturso>=0.7.0"
+            value.startswith("pyturso") and value == "pyturso>=0.7.2"
             for value in requirements
         ):
             raise RuntimeError(f"{artifact.name} has incorrect pyturso requirement")

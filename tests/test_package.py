@@ -19,7 +19,7 @@ def _metadata(version: str) -> EmailMessage:
     message["Requires-Python"] = ">=3.14"
     message["License-Expression"] = "MIT"
     message["Requires-Dist"] = "Django>=6.0.7"
-    message["Requires-Dist"] = "pyturso>=0.7.0"
+    message["Requires-Dist"] = "pyturso>=0.7.2"
     return message
 
 

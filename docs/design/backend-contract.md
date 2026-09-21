@@ -10,11 +10,13 @@ This is the authoritative v1 product boundary for `django-pyturso`.
 - Local filesystem paths and exactly `:memory:`. Relative paths, absolute paths,
   path-like objects, traversal components, and normal filesystem symlinks use
   operating-system semantics; the backend does not create a path sandbox.
-- `DEFERRED` and `IMMEDIATE` transaction modes. Django owns transaction
+- `DEFERRED`, `IMMEDIATE`, and explicitly configured MVCC `CONCURRENT`
+  transaction modes. MVCC access is limited to one process per database.
+  Django owns transaction
   boundaries with driver implicit transaction handling disabled.
 
 URLs, `file:` URIs, credentials, remote/cloud transports, sync, replicas,
-encryption, driver callbacks, unknown options, and experimental engine modes
+encryption, driver callbacks, unknown options, and other experimental engine modes
 are rejected before use.
 
 ## Supported Django surface
@@ -81,7 +83,7 @@ driver exposes the required constructor and complete round-trip evidence passes.
 - Vector, Turso FTS, UUID7, and other Turso-specific ORM abstractions.
 - Older Python/Django lines, stdlib SQLite connections, runtime backend
   substitution, compatibility shims, aliases, and monkey patches.
-- Generated columns, experimental concurrency, encryption, and async driver
+- Generated columns, multi-process MVCC, encryption, and async driver
   adaptation.
 
 Future optional work is recorded in `docs/roadmap.md`; it cannot expand this

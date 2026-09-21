@@ -37,5 +37,6 @@ connection.
 connection lifecycle. `features.py` declares only verified Django capabilities;
 `operations.py` owns SQL generation and value conversion. Introspection,
 schema editing, test database creation, and client behavior remain in their
-dedicated modules. Runtime product switches and dormant activation paths are forbidden;
+dedicated modules. Journal and transaction modes are explicit database settings.
+Runtime product switches and dormant activation paths are forbidden;
 supported behavior is fixed by the package version and its documented contract.

@@ -37,6 +37,12 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
     sql_alter_column_comment = None  # type: ignore[assignment]
 
     _original_foreign_keys: int | None = None
+    _original_transaction_mode: str | None = None
+
+    def _restore_transaction_mode(self) -> None:
+        if self._original_transaction_mode is not None:
+            self.connection.transaction_mode = self._original_transaction_mode  # type: ignore[attr-defined]
+            self._original_transaction_mode = None
 
     def _foreign_key_state(self) -> int:
         with self.connection.cursor() as cursor:
@@ -73,6 +79,11 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
 
     def __enter__(self) -> Self:
         self.connection.ensure_connection()
+        if getattr(self.connection, "transaction_mode", None) == "CONCURRENT":
+            if not self.connection.get_autocommit() or self.connection.in_atomic_block:
+                raise NotSupportedError(
+                    "Concurrent schema editing must begin outside an active transaction."
+                )
         try:
             self._original_foreign_keys = self._foreign_key_state()
         except BaseException:
@@ -86,15 +97,31 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
                 )
             if self._original_foreign_keys:
                 self._set_foreign_key_state(False)
+            if getattr(self.connection, "transaction_mode", None) == "CONCURRENT":
+                self._original_transaction_mode = "CONCURRENT"
+                self.connection.transaction_mode = "IMMEDIATE"  # type: ignore[attr-defined]
             return super().__enter__()
         except BaseException as primary:
             try:
                 self._restore_foreign_key_state()
             except BaseException as restoration:
                 raise primary from restoration
+            finally:
+                self._restore_transaction_mode()
             raise
 
     def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        try:
+            self._exit_schema(exc_type, exc_value, traceback)
+        finally:
+            self._restore_transaction_mode()
+
+    def _exit_schema(
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,

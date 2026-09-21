@@ -42,3 +42,20 @@ execution.
 checks their metadata and clean-installs each artifact into a temporary Django
 project using both an in-memory and a file database. The installed-package
 example in `scripts/package_smoke.py` is copied into each temporary project.
+
+## MVCC coverage
+
+`pdm run test` includes connection configuration, journal persistence,
+overlapping writers, statement and commit conflicts, savepoints, manual
+transactions, and schema cleanup tests for MVCC.
+
+Run the migration corpus and application checks in MVCC mode with:
+
+```bash
+pdm run pytest --ds=tests.settings.turso_mvcc tests/core/test_migration_corpus.py tests/core/test_orm.py tests/core/constraints/test_foreign_keys.py tests/integration/test_user_paths.py
+```
+
+Set `DJANGO_PYTURSO_MVCC_DB` to a disposable file path for the file-backed run.
+Leave it unset for an in-memory database. These checks run in one process.
+They do not claim support for multiple worker processes or crash recovery
+under every possible interruption.

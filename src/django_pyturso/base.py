@@ -109,9 +109,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         "endswith": r"LIKE '%%' || {} ESCAPE '\'",
         "iendswith": r"LIKE '%%' || UPPER({}) ESCAPE '\'",
     }
-    transaction_modes = frozenset({"DEFERRED", "IMMEDIATE"})
+    transaction_modes = frozenset({"DEFERRED", "IMMEDIATE", "CONCURRENT"})
 
     transaction_mode: str
+    journal_mode: str | None = None
     _connected_database_version: tuple[int, int, int]
     health_check_enabled: bool
     health_check_done: bool
@@ -139,7 +140,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                     f"django-pyturso doesn't accept the {key} database setting."
                 )
         options = dict(settings_dict.get("OPTIONS") or {})
-        unknown = set(options) - {"transaction_mode"}
+        unknown = set(options) - {"transaction_mode", "journal_mode"}
         if unknown:
             names = ", ".join(sorted(unknown))
             raise ImproperlyConfigured(f"Unsupported django-pyturso OPTIONS: {names}.")
@@ -148,6 +149,17 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             allowed = ", ".join(sorted(self.transaction_modes))
             raise ImproperlyConfigured(f"transaction_mode must be one of: {allowed}.")
         self.transaction_mode = raw_mode.upper()
+        self.journal_mode = None
+        if "journal_mode" in options:
+            raw_journal_mode = options["journal_mode"]
+            if not isinstance(raw_journal_mode, str) or raw_journal_mode.upper() not in {
+                "WAL",
+                "MVCC",
+            }:
+                raise ImproperlyConfigured("journal_mode must be one of: MVCC, WAL.")
+            self.journal_mode = raw_journal_mode.upper()
+        if self.transaction_mode == "CONCURRENT" and self.journal_mode != "MVCC":
+            raise ImproperlyConfigured("transaction_mode CONCURRENT requires journal_mode MVCC.")
         return {"database": database, "isolation_level": None}
 
     @async_unsafe
@@ -166,6 +178,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         try:
             cursor = connection.cursor()
             try:
+                if self.journal_mode is not None:
+                    self._configure_journal_mode(cursor)
                 cursor.execute("PRAGMA foreign_keys = ON")
                 cursor.execute("PRAGMA foreign_keys")
                 row = cursor.fetchone()
@@ -182,6 +196,24 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             connection.close()
             raise
         return connection
+
+    def _configure_journal_mode(self, cursor: Any) -> None:
+        cursor.execute("PRAGMA journal_mode")
+        row = cursor.fetchone()
+        if row is None or not isinstance(row[0], str) or row[0].upper() not in {"WAL", "MVCC"}:
+            raise DatabaseError("Turso did not report a valid journal mode.")
+        if row[0].upper() == self.journal_mode:
+            return
+        if self.journal_mode == "WAL":
+            raise ImproperlyConfigured(
+                "The database uses MVCC. django-pyturso cannot change it to WAL."
+            )
+        cursor.execute("PRAGMA journal_mode = MVCC")
+        cursor.fetchall()
+        cursor.execute("PRAGMA journal_mode")
+        row = cursor.fetchone()
+        if row is None or not isinstance(row[0], str) or row[0].upper() != "MVCC":
+            raise DatabaseError("Turso did not enable MVCC journal mode.")
 
     @staticmethod
     def _parse_database_version(raw_version: object) -> tuple[int, int, int]:

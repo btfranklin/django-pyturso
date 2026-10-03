@@ -54,3 +54,5 @@ normal wrapper without a backend translation layer.
 Introspection preserves the column order in named and unnamed table-level
 `UNIQUE` constraints. The `inspectdb` command includes composite uniqueness
 rules in the generated model's `unique_together` setting.
+Quoted column and constraint names retain their actual names, including escaped
+double quotes and backticks. `inspectdb` retains column uniqueness for these names.

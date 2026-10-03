@@ -46,6 +46,16 @@ def get_field_size(name: str) -> int | None:
     return int(match[1]) if match else None
 
 
+def _unquote_identifier(value: str) -> str:
+    if value.startswith('"') and value.endswith('"'):
+        return value[1:-1].replace('""', '"')
+    if value.startswith("`") and value.endswith("`"):
+        return value[1:-1].replace("``", "`")
+    if value.startswith("[") and value.endswith("]"):
+        return value[1:-1]
+    return value
+
+
 class FlexibleFieldLookupDict:
     """Map Turso's SQLite-compatible declared types and affinities to fields."""
 
@@ -326,10 +336,12 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                     continue
             if is_constraint_definition:
                 if is_named_constraint and constraint_name is None:
-                    if token.ttype in (sqlparse.tokens.Name, sqlparse.tokens.Keyword):
-                        constraint_name = token.value
-                    elif token.ttype == sqlparse.tokens.Literal.String.Symbol:
-                        constraint_name = token.value[1:-1]
+                    if token.ttype in (
+                        sqlparse.tokens.Name,
+                        sqlparse.tokens.Keyword,
+                        sqlparse.tokens.Literal.String.Symbol,
+                    ):
+                        constraint_name = _unquote_identifier(token.value)
                 if token.match(sqlparse.tokens.Keyword, "UNIQUE"):
                     unique = True
                     unique_braces_deep = braces_deep
@@ -338,16 +350,20 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         if unique_columns:
                             unique = False
                         continue
-                    if token.ttype in (sqlparse.tokens.Name, sqlparse.tokens.Keyword):
-                        unique_columns.append(token.value)
-                    elif token.ttype == sqlparse.tokens.Literal.String.Symbol:
-                        unique_columns.append(token.value[1:-1])
+                    if token.ttype in (
+                        sqlparse.tokens.Name,
+                        sqlparse.tokens.Keyword,
+                        sqlparse.tokens.Literal.String.Symbol,
+                    ):
+                        unique_columns.append(_unquote_identifier(token.value))
             else:
                 if field_name is None:
-                    if token.ttype in (sqlparse.tokens.Name, sqlparse.tokens.Keyword):
-                        field_name = token.value
-                    elif token.ttype == sqlparse.tokens.Literal.String.Symbol:
-                        field_name = token.value[1:-1]
+                    if token.ttype in (
+                        sqlparse.tokens.Name,
+                        sqlparse.tokens.Keyword,
+                        sqlparse.tokens.Literal.String.Symbol,
+                    ):
+                        field_name = _unquote_identifier(token.value)
                 if token.match(sqlparse.tokens.Keyword, "UNIQUE") and field_name is not None:
                     unique_columns = [field_name]
             if token.match(sqlparse.tokens.Keyword, "CHECK"):
@@ -358,11 +374,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                     if check_columns:
                         check = False
                     continue
-                candidate = (
-                    token.value[1:-1]
-                    if token.ttype == sqlparse.tokens.Literal.String.Symbol
-                    else token.value
-                )
+                candidate = _unquote_identifier(token.value)
                 if candidate in columns:
                     check_columns.append(candidate)
         if token is None:
@@ -499,13 +511,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 )
             ):
                 continue
-            name = str(identifier.value)
-            if name.startswith('"') and name.endswith('"'):
-                name = name[1:-1].replace('""', '"')
-            elif name.startswith("`") and name.endswith("`"):
-                name = name[1:-1]
-            elif name.startswith("[") and name.endswith("]"):
-                name = name[1:-1]
+            name = _unquote_identifier(str(identifier.value))
             if column := columns_by_name.get(name.casefold()):
                 result.add(column)
         return result
@@ -525,14 +531,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         )
         if token is None:
             return None
-        value = str(token.value)
-        if value.startswith('"') and value.endswith('"'):
-            return value[1:-1].replace('""', '"')
-        if value.startswith("`") and value.endswith("`"):
-            return value[1:-1]
-        if value.startswith("[") and value.endswith("]"):
-            return value[1:-1]
-        return value
+        return _unquote_identifier(str(token.value))
 
     @staticmethod
     def _split_table_definitions(sql: str) -> list[str]:

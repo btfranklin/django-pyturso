@@ -428,6 +428,59 @@ def test_table_unique_constraints_preserve_columns_and_inspectdb_output(
             cursor.execute("DROP TABLE intro_table_unique")
 
 
+@pytest.mark.core
+@pytest.mark.parametrize(
+    ("column_sql", "column_name", "constraint_sql", "constraint_name"),
+    [
+        ('"a""b"', 'a"b', '"ck""quoted"', 'ck"quoted'),
+        ("`a``b`", "a`b", "`ck``quoted`", "ck`quoted"),
+        ("[quoted column]", "quoted column", "[quoted check]", "quoted check"),
+    ],
+)
+def test_quoted_constraints_preserve_identifiers_and_inspectdb_uniqueness(
+    django_db_blocker: Any,
+    column_sql: str,
+    column_name: str,
+    constraint_sql: str,
+    constraint_name: str,
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE TABLE intro_quoted_constraints ("
+            f"id INTEGER PRIMARY KEY, {column_sql} TEXT UNIQUE, "
+            f"CONSTRAINT {constraint_sql} CHECK ({column_sql} <> ''))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(
+                cursor, "intro_quoted_constraints"
+            )
+            assert any(
+                constraint["unique"] and constraint["columns"] == [column_name]
+                for constraint in constraints.values()
+            )
+            assert constraints[constraint_name]["check"]
+            assert constraints[constraint_name]["columns"] == [column_name]
+            output = StringIO()
+            call_command("inspectdb", "intro_quoted_constraints", stdout=output)
+            assert "unique=True" in output.getvalue()
+        finally:
+            cursor.execute("DROP TABLE intro_quoted_constraints")
+
+
+@pytest.mark.parametrize(
+    ("identifier", "expected"),
+    [('"a""b"', 'a"b'), ("`a``b`", "a`b"), ("[quoted column]", "quoted column")],
+)
+def test_quoted_table_unique_constraints_preserve_column_order(
+    identifier: str, expected: str
+) -> None:
+    constraints = DatabaseIntrospection._parse_table_constraints(
+        f"CREATE TABLE sample ({identifier} TEXT, other TEXT, UNIQUE ({identifier}, other))",
+        {expected, "other"},
+    )
+    assert next(iter(constraints.values()))["columns"] == [expected, "other"]
+
+
 @pytest.mark.parametrize(
     ("definition", "expected_columns"),
     [

@@ -62,6 +62,8 @@ differs. Distinct Unicode column names remain distinct, including for JSON field
 Schema lookup also ignores ASCII case in table and index names.
 `COLLATE` and sort modifiers in a table-level `UNIQUE` constraint are not column
 references. Introspection preserves only the ordered column list for that rule.
+Function names and collation names in a `CHECK` constraint are not column
+references. Introspection reports only the columns used by that expression.
 
 ## Schema alterations
 

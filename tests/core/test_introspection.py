@@ -590,6 +590,32 @@ def test_single_quoted_identifiers_preserve_unique_constraints(django_db_blocker
             cursor.execute("DROP TABLE intro_single_quotes")
 
 
+@pytest.mark.core
+@pytest.mark.parametrize(
+    ("expression", "expected_columns"),
+    [
+        ("length(value) > 0", ["value"]),
+        ("length(length) > 0", ["length"]),
+        ("value COLLATE NOCASE <> ''", ["value"]),
+        ('value COLLATE NOCASE <> "NOCASE"', ["value", "NOCASE"]),
+    ],
+)
+def test_check_expression_labels_do_not_become_columns(
+    django_db_blocker: Any, expression: str, expected_columns: list[str]
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            'CREATE TABLE intro_check_labels (id INTEGER PRIMARY KEY, value TEXT, '
+            '"length" TEXT, "NOCASE" TEXT, CONSTRAINT value_check '
+            f"CHECK({expression}))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(cursor, "intro_check_labels")
+            assert constraints["value_check"]["columns"] == expected_columns
+        finally:
+            cursor.execute("DROP TABLE intro_check_labels")
+
+
 @pytest.mark.parametrize(
     ("definition", "expected_columns"),
     [

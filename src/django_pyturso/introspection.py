@@ -325,6 +325,8 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         unique_needs_column = False
         unique_columns: list[str] = []
         check = False
+        check_needs_collation = False
+        check_pending_column: str | None = None
         check_columns: list[str] = []
         columns_by_name = {_identifier_key(column): column for column in columns}
         braces_deep = 0
@@ -386,11 +388,22 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                     unique_columns = [field_name]
             if token.match(sqlparse.tokens.Keyword, "CHECK"):
                 check = True
+                check_needs_collation = False
                 check_braces_deep = braces_deep
             elif check:
+                if check_pending_column is not None:
+                    if not token.match(sqlparse.tokens.Punctuation, "("):
+                        check_columns.append(check_pending_column)
+                    check_pending_column = None
                 if check_braces_deep == braces_deep:
                     if check_columns:
                         check = False
+                    continue
+                if check_needs_collation:
+                    check_needs_collation = False
+                    continue
+                if token.match(sqlparse.tokens.Keyword, "COLLATE"):
+                    check_needs_collation = True
                     continue
                 if token.ttype in (
                     sqlparse.tokens.Name,
@@ -398,8 +411,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                     sqlparse.tokens.Literal.String.Symbol,
                 ):
                     candidate = _unquote_identifier(token.value)
-                    if column := columns_by_name.get(_identifier_key(candidate)):
-                        check_columns.append(column)
+                    check_pending_column = columns_by_name.get(_identifier_key(candidate))
         if token is None:
             raise DatabaseError("Unable to parse an empty table definition.")
         unique_constraint = (
@@ -438,7 +450,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         tokens = (
             token
             for token in statements[0].flatten()  # type: ignore[no-untyped-call]
-            if not token.is_whitespace
+            if not token.is_whitespace and token.ttype not in sqlparse.tokens.Comment
         )
         for token in tokens:
             if token.match(sqlparse.tokens.Punctuation, "("):

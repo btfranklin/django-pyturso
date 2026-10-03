@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import re
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from itertools import tee
 from typing import Any, cast
 
@@ -116,6 +117,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     _connected_database_version: tuple[int, int, int]
     health_check_enabled: bool
     health_check_done: bool
+    rollback_exc: BaseException | None
 
     def get_connection_params(self) -> dict[str, Any]:
         settings_dict = self.settings_dict
@@ -239,6 +241,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if self.connection is None or self.autocommit or self.connection.in_transaction:
             return
         if self.in_atomic_block and self.commit_on_exit:
+            self.needs_rollback = True
+            self.run_on_commit = []
             raise TransactionManagementError(
                 "Django is inside atomic() but the Turso transaction is no longer active."
             )
@@ -257,6 +261,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def _start_transaction_under_autocommit(self) -> None:
         with self.wrap_database_errors:
             self._begin()
+
+    def _savepoint_rollback(self, sid: str) -> None:
+        if not self.connection.in_transaction:
+            raise TransactionManagementError(
+                "The Turso transaction is no longer active; its savepoints are lost."
+            )
+        with self.cursor() as cursor:
+            cursor.execute(self.ops.savepoint_rollback_sql(sid))
 
     def _read_foreign_key_state(self) -> int:
         with self.cursor() as cursor:
@@ -579,28 +591,51 @@ def _convert_placeholders(query: str, *, param_names: list[str] | None) -> str:
 
 
 class TursoCursorWrapper(Database.Cursor):
-    """Translate Django format/pyformat placeholders to Turso placeholders."""
+    """Convert Django placeholders and guard statements that execute during fetch."""
 
     _django_wrapper: DatabaseWrapper
 
-    def _ensure_django_transaction(self) -> None:
-        self._django_wrapper._ensure_transaction()
+    @contextmanager
+    def _django_transaction(self) -> Iterator[None]:
+        wrapper = self._django_wrapper
+        wrapper.validate_no_broken_transaction()
+        wrapper._ensure_transaction()
+        try:
+            yield
+        except Database.Error as error:
+            if wrapper.in_atomic_block and not self.connection.in_transaction:
+                wrapper.needs_rollback = True
+                wrapper.rollback_exc = error
+                wrapper.run_on_commit = []
+            raise
 
     def execute(self, query: str, params: Any = None) -> Any:
-        self._ensure_django_transaction()
-        if params is None:
-            return super().execute(query)
-        names = list(params) if isinstance(params, Mapping) else None
-        return super().execute(self.convert_query(query, param_names=names), params)
+        with self._django_transaction():
+            if params is None:
+                return super().execute(query)
+            names = list(params) if isinstance(params, Mapping) else None
+            return super().execute(self.convert_query(query, param_names=names), params)
 
     def executemany(self, query: str, param_list: Iterable[Any]) -> Any:
-        self._ensure_django_transaction()
-        peekable, preserved = tee(iter(param_list))
-        first = next(peekable, None)
-        if first is None:
-            return self
-        names = list(first) if isinstance(first, Mapping) else None
-        return super().executemany(self.convert_query(query, param_names=names), preserved)
+        with self._django_transaction():
+            peekable, preserved = tee(iter(param_list))
+            first = next(peekable, None)
+            if first is None:
+                return self
+            names = list(first) if isinstance(first, Mapping) else None
+            return super().executemany(self.convert_query(query, param_names=names), preserved)
+
+    def fetchone(self) -> Any:
+        with self._django_transaction():
+            return super().fetchone()
+
+    def fetchmany(self, size: int | None = None) -> list[Any]:
+        with self._django_transaction():
+            return super().fetchmany(size)
+
+    def fetchall(self) -> list[Any]:
+        with self._django_transaction():
+            return super().fetchall()
 
     @staticmethod
     def convert_query(query: str, *, param_names: list[str] | None = None) -> str:

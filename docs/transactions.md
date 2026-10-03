@@ -3,9 +3,16 @@
 Django owns transaction boundaries. The driver remains in explicit-autocommit
 mode; disabling Django autocommit starts the configured `BEGIN DEFERRED`,
 `BEGIN IMMEDIATE`, or `BEGIN CONCURRENT` transaction.
-After a manual commit or rollback, the next statement lazily starts the next
-manual transaction. Ordinary and nested `atomic()` blocks use explicit outer
-transactions and savepoints.
+After a manual commit or rollback, the next statement or cursor fetch lazily
+starts the next manual transaction. Ordinary and nested `atomic()` blocks use
+explicit outer transactions and savepoints.
+
+Turso can delay a statement with result columns until the cursor fetches a row.
+This includes writes with `RETURNING`. The backend checks Django's transaction
+state before `fetchone()`, `fetchmany()`, `fetchall()`, and each iteration step.
+A pending write fetched after a manual commit or rollback belongs to the next
+manual transaction and can be rolled back. Fetching within a failed atomic
+transaction raises `TransactionManagementError`, including for read cursors.
 
 Enabling autocommit while work remains active raises
 `TransactionManagementError`; callers must choose commit or rollback. Closing
@@ -29,6 +36,12 @@ blocks use concurrent transactions. Nested atomic blocks use savepoints.
 Writers that change separate rows can commit overlapping transactions.
 Conflicting writes can raise `DatabaseError` during a statement or commit.
 A conflict can also abort the engine transaction.
+
+If a statement or fetch error ends the engine transaction within `atomic()`, the
+backend marks the block for rollback and removes its commit callbacks. Further
+statements and fetches cannot start new engine work in that failed block.
+Savepoint rollback does not start a new transaction when the engine has already
+discarded the transaction and its savepoints.
 
 Catch the error outside the outer `atomic()` block. If the error is a retryable
 conflict, retry the complete transaction with fresh reads and a bounded retry

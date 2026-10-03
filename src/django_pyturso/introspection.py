@@ -304,7 +304,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     @staticmethod
     def _get_schema_sql(cursor: Any, object_type: str, name: str) -> str | None:
         cursor.execute(
-            "SELECT sql FROM sqlite_master WHERE type = %s AND name = %s",
+            "SELECT sql FROM sqlite_master WHERE type = %s AND name = %s COLLATE NOCASE",
             (object_type, name),
         )
         row = cursor.fetchone()

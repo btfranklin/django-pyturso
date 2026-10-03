@@ -58,6 +58,7 @@ Quoted column and constraint names retain their actual names, including escaped
 double quotes and backticks. `inspectdb` retains column uniqueness for these names.
 Constraint references use the declared column names when ASCII letter case
 differs. Distinct Unicode column names remain distinct, including for JSON fields.
+Schema lookup also ignores ASCII case in table and index names.
 `COLLATE` and sort modifiers in a table-level `UNIQUE` constraint are not column
 references. Introspection preserves only the ordered column list for that rule.
 

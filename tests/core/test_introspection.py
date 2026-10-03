@@ -544,6 +544,28 @@ def test_unique_constraint_modifiers_do_not_become_columns(django_db_blocker: An
             cursor.execute("DROP TABLE intro_collated_unique")
 
 
+@pytest.mark.core
+def test_schema_lookup_uses_native_table_name_case(django_db_blocker: Any) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            'CREATE TABLE intro_lookup_case (id INTEGER PRIMARY KEY, "Value" VARCHAR(31) '
+            'COLLATE NOCASE UNIQUE CHECK(JSON_VALID("Value")))'
+        )
+        try:
+            assert connection.introspection.get_table_description(
+                cursor, "INTRO_LOOKUP_CASE"
+            ) == connection.introspection.get_table_description(cursor, "intro_lookup_case")
+            assert connection.introspection.get_constraints(
+                cursor, "INTRO_LOOKUP_CASE"
+            ) == connection.introspection.get_constraints(cursor, "intro_lookup_case")
+            output = StringIO()
+            call_command("inspectdb", "INTRO_LOOKUP_CASE", stdout=output)
+            assert "models.JSONField(" in output.getvalue()
+            assert "unique=True" in output.getvalue()
+        finally:
+            cursor.execute("DROP TABLE intro_lookup_case")
+
+
 @pytest.mark.parametrize(
     ("definition", "expected_columns"),
     [

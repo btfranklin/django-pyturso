@@ -22,6 +22,9 @@ The ordinary suite covers the supported backend behavior, including focused
 property and fault-injection regressions. Use these groups when changing their
 area:
 
+- `pdm run test-django-regressions` runs selected upstream Django database
+  regressions through the real Turso backend. The [source map](testing/django-regressions.md)
+  records the exact Django commit, source methods, and local changes.
 - `pdm run test-differential` compares a compact ORM, transaction, schema, and
   introspection scenario catalog against Django's SQLite backend.
 - `pdm run test-integration` exercises Django's test runner, auth, forms, and
@@ -73,3 +76,33 @@ Leave it unset for an in-memory database. These checks run in one process.
 CI and tag verification run this task with both database types.
 They do not claim support for multiple worker processes or crash recovery
 under every possible interruption.
+
+## Selected Django regressions
+
+`tests/django_regressions/` contains 20 test functions with 26 collected cases.
+They cover bulk conflict handling, bulk update expressions and rollback, JSON
+nulls and key queries, expression reuse, and transaction error recovery.
+Each case creates and removes its own tables. The models use a separate app
+registry. The suite checks that the selected engine is `django_pyturso`.
+
+The full pytest gate includes these tests. CI also runs the selected suite with
+WAL file settings, and the MVCC task includes it for memory and file databases.
+Run a file-backed WAL check with:
+
+```bash
+mkdir -p /tmp/django-pyturso-regressions
+DJANGO_PYTURSO_TEST_DB=/tmp/django-pyturso-regressions \
+  pdm run test-django-regressions --ds=tests.settings.turso_file
+```
+
+Use a disposable directory: this setting stores `django-pyturso-tests.db` in
+that directory. Run the selected MVCC cases with:
+
+```bash
+pdm run test-django-regressions --ds=tests.settings.turso_mvcc
+DJANGO_PYTURSO_MVCC_DB=/tmp/django-pyturso-regressions/mvcc.db \
+  pdm run test-django-regressions --ds=tests.settings.turso_mvcc
+```
+
+These selected cases supplement the backend tests. They do not run the complete
+Django test suite or establish support for all Django features.

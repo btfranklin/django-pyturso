@@ -33,6 +33,10 @@ jobs:
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
             - run: pdm run check-full
+            - name: Test Django regressions in a file
+              env:
+                  DJANGO_PYTURSO_TEST_DB: ${{ runner.temp }}
+              run: pdm run test-django-regressions --ds=tests.settings.turso_file
             - name: Test MVCC in memory
               run: pdm run test-mvcc
             - name: Test MVCC in a file

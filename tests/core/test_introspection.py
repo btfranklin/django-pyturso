@@ -481,6 +481,51 @@ def test_quoted_table_unique_constraints_preserve_column_order(
     assert next(iter(constraints.values()))["columns"] == [expected, "other"]
 
 
+@pytest.mark.core
+def test_constraint_references_use_declared_column_names(django_db_blocker: Any) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            'CREATE TABLE intro_constraint_case (id INTEGER PRIMARY KEY, "Value" TEXT, '
+            "other TEXT, CONSTRAINT case_check CHECK(vAlUe <> ''), "
+            "CONSTRAINT case_unique UNIQUE(value, OTHER))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(cursor, "intro_constraint_case")
+            assert constraints["case_check"]["columns"] == ["Value"]
+            assert constraints["case_unique"]["columns"] == ["Value", "other"]
+            output = StringIO()
+            call_command("inspectdb", "intro_constraint_case", stdout=output)
+            assert "unique_together = (('value', 'other'),)" in output.getvalue()
+        finally:
+            cursor.execute("DROP TABLE intro_constraint_case")
+
+
+@pytest.mark.core
+@pytest.mark.parametrize("columns", [("Straße", "STRASSE"), ("é", "É"), ("Ω", "ω")])
+@pytest.mark.parametrize("json_index", [0, 1])
+def test_json_introspection_keeps_distinct_unicode_identifiers(
+    django_db_blocker: Any, columns: tuple[str, str], json_index: int
+) -> None:
+    quoted = [connection.ops.quote_name(column) for column in columns]
+    definitions = [
+        f"{column} TEXT CHECK(JSON_VALID({column}))" if index == json_index else f"{column} TEXT"
+        for index, column in enumerate(quoted)
+    ]
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE intro_json_case ({', '.join(definitions)})")
+        try:
+            description = connection.introspection.get_table_description(cursor, "intro_json_case")
+            assert {
+                field.name: connection.introspection.get_field_type(field.type_code, field)
+                for field in description
+            } == {
+                column: "JSONField" if index == json_index else "TextField"
+                for index, column in enumerate(columns)
+            }
+        finally:
+            cursor.execute("DROP TABLE intro_json_case")
+
+
 @pytest.mark.parametrize(
     ("definition", "expected_columns"),
     [

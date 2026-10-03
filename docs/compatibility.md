@@ -56,6 +56,8 @@ Introspection preserves the column order in named and unnamed table-level
 rules in the generated model's `unique_together` setting.
 Quoted column and constraint names retain their actual names, including escaped
 double quotes and backticks. `inspectdb` retains column uniqueness for these names.
+Constraint references use the declared column names when ASCII letter case
+differs. Distinct Unicode column names remain distinct, including for JSON fields.
 
 ## Schema alterations
 

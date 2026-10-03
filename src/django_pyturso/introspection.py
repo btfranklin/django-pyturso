@@ -38,6 +38,7 @@ class FieldInfo(NamedTuple):
 
 
 field_size_re = _lazy_re_compile(r"^\s*(?:var)?char\s*\(\s*(\d+)\s*\)\s*$", flags=2)
+_IDENTIFIER_CASE = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
 def get_field_size(name: str) -> int | None:
@@ -54,6 +55,11 @@ def _unquote_identifier(value: str) -> str:
     if value.startswith("[") and value.endswith("]"):
         return value[1:-1]
     return value
+
+
+def _identifier_key(value: str) -> str:
+    # SQL identifiers ignore ASCII case. Other Unicode names remain distinct.
+    return value.translate(_IDENTIFIER_CASE)
 
 
 class FlexibleFieldLookupDict:
@@ -317,6 +323,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         unique_columns: list[str] = []
         check = False
         check_columns: list[str] = []
+        columns_by_name = {_identifier_key(column): column for column in columns}
         braces_deep = 0
         for token in tokens:
             if token.match(sqlparse.tokens.Punctuation, "("):
@@ -355,7 +362,8 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         sqlparse.tokens.Keyword,
                         sqlparse.tokens.Literal.String.Symbol,
                     ):
-                        unique_columns.append(_unquote_identifier(token.value))
+                        name = _unquote_identifier(token.value)
+                        unique_columns.append(columns_by_name.get(_identifier_key(name), name))
             else:
                 if field_name is None:
                     if token.ttype in (
@@ -375,8 +383,8 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         check = False
                     continue
                 candidate = _unquote_identifier(token.value)
-                if candidate in columns:
-                    check_columns.append(candidate)
+                if column := columns_by_name.get(_identifier_key(candidate)):
+                    check_columns.append(column)
         if token is None:
             raise DatabaseError("Unable to parse an empty table definition.")
         unique_constraint = (
@@ -486,7 +494,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     def _get_json_columns(cls, table_sql: str | None, columns: set[str]) -> set[str]:
         if not table_sql:
             return set()
-        columns_by_name = {column.casefold(): column for column in columns}
+        columns_by_name = {_identifier_key(column): column for column in columns}
         result: set[str] = set()
         statements = sqlparse.parse(table_sql)
         if not statements:
@@ -512,7 +520,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             ):
                 continue
             name = _unquote_identifier(str(identifier.value))
-            if column := columns_by_name.get(name.casefold()):
+            if column := columns_by_name.get(_identifier_key(name)):
                 result.add(column)
         return result
 

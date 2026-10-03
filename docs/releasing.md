@@ -10,5 +10,9 @@
    after verification completes.
 5. Publishing the GitHub Release triggers PyPI Trusted Publishing.
 
+Before upload, the publication job checks the lockfile and the full test gate.
+It builds both archives, checks their version against the release tag, and
+clean-installs each archive for the Django smoke tests.
+
 The draft-release workflow creates release notes. The verification workflow only
 tests the tag and artifacts; it does not publish a release or upload to PyPI.

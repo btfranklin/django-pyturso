@@ -13,9 +13,11 @@ permissions:
 jobs:
     publish:
         runs-on: ubuntu-latest
+        timeout-minutes: 30
         environment: release
         permissions:
-            # IMPORTANT: this permission is mandatory for trusted publishing
+            contents: read
+            # Required for PyPI Trusted Publishing.
             id-token: write
 
         steps:
@@ -26,7 +28,14 @@ jobs:
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
+            - run: pdm lock --check
+            - run: pdm sync -G dev --clean
+            - run: pdm run check-full
             - name: Build package
               run: pdm build
+            - name: Verify release artifacts
+              env:
+                  RELEASE_TAG: ${{ github.event.release.tag_name }}
+              run: pdm run verify-release --expected-version "${RELEASE_TAG#v}"
             - name: Publish package with Trusted Publishing
               uses: pypa/gh-action-pypi-publish@release/v1

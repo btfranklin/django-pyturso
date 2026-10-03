@@ -566,6 +566,30 @@ def test_schema_lookup_uses_native_table_name_case(django_db_blocker: Any) -> No
             cursor.execute("DROP TABLE intro_lookup_case")
 
 
+@pytest.mark.core
+def test_single_quoted_identifiers_preserve_unique_constraints(django_db_blocker: Any) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE TABLE intro_single_quotes (id INTEGER PRIMARY KEY, 'value' TEXT UNIQUE, "
+            "'other' TEXT, CONSTRAINT 'uq''pair' UNIQUE('value', 'other'), "
+            "CONSTRAINT 'quoted_check' CHECK(\"value\" <> 'other'))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(cursor, "intro_single_quotes")
+            assert any(
+                details["unique"] and details["columns"] == ["value"]
+                for details in constraints.values()
+            )
+            assert constraints["uq'pair"]["columns"] == ["value", "other"]
+            assert constraints["quoted_check"]["columns"] == ["value"]
+            output = StringIO()
+            call_command("inspectdb", "intro_single_quotes", stdout=output)
+            assert "unique=True" in output.getvalue()
+            assert "unique_together = (('value', 'other'),)" in output.getvalue()
+        finally:
+            cursor.execute("DROP TABLE intro_single_quotes")
+
+
 @pytest.mark.parametrize(
     ("definition", "expected_columns"),
     [

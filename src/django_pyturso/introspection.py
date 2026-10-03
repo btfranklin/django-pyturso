@@ -50,6 +50,8 @@ def get_field_size(name: str) -> int | None:
 def _unquote_identifier(value: str) -> str:
     if value.startswith('"') and value.endswith('"'):
         return value[1:-1].replace('""', '"')
+    if value.startswith("'") and value.endswith("'"):
+        return value[1:-1].replace("''", "'")
     if value.startswith("`") and value.endswith("`"):
         return value[1:-1].replace("``", "`")
     if value.startswith("[") and value.endswith("]"):
@@ -348,6 +350,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         sqlparse.tokens.Name,
                         sqlparse.tokens.Keyword,
                         sqlparse.tokens.Literal.String.Symbol,
+                        sqlparse.tokens.Literal.String.Single,
                     ):
                         constraint_name = _unquote_identifier(token.value)
                 if token.match(sqlparse.tokens.Keyword, "UNIQUE"):
@@ -365,6 +368,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         sqlparse.tokens.Name,
                         sqlparse.tokens.Keyword,
                         sqlparse.tokens.Literal.String.Symbol,
+                        sqlparse.tokens.Literal.String.Single,
                     ):
                         name = _unquote_identifier(token.value)
                         unique_columns.append(columns_by_name.get(_identifier_key(name), name))
@@ -375,6 +379,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         sqlparse.tokens.Name,
                         sqlparse.tokens.Keyword,
                         sqlparse.tokens.Literal.String.Symbol,
+                        sqlparse.tokens.Literal.String.Single,
                     ):
                         field_name = _unquote_identifier(token.value)
                 if token.match(sqlparse.tokens.Keyword, "UNIQUE") and field_name is not None:
@@ -387,9 +392,14 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                     if check_columns:
                         check = False
                     continue
-                candidate = _unquote_identifier(token.value)
-                if column := columns_by_name.get(_identifier_key(candidate)):
-                    check_columns.append(column)
+                if token.ttype in (
+                    sqlparse.tokens.Name,
+                    sqlparse.tokens.Keyword,
+                    sqlparse.tokens.Literal.String.Symbol,
+                ):
+                    candidate = _unquote_identifier(token.value)
+                    if column := columns_by_name.get(_identifier_key(candidate)):
+                        check_columns.append(column)
         if token is None:
             raise DatabaseError("Unable to parse an empty table definition.")
         unique_constraint = (

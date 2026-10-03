@@ -25,6 +25,9 @@ This run checks the selected branch on all three platforms and verifies both
 package archives. A tag run also checks that each artifact version matches the
 tag.
 
+Package build jobs fetch the full Git history and tags. The package version
+comes from the latest version tag and the commits after it.
+
 The draft-release workflow creates release notes. The verification workflow only
 tests the branch or tag and artifacts; it does not publish a release or upload
 to PyPI.

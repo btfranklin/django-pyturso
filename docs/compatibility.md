@@ -34,6 +34,11 @@ payload storage must not use this backend for that field in v1.
 The audited 0.7.0 release likewise has no top-level `turso.Binary`, so the v1
 exclusion remains in force.
 
+## Temporal aggregates
+
+`Sum` and `Avg` reject date, datetime, and time fields. These values are
+stored as text, so a numeric aggregate can return a misleading result.
+
 ## Driver I/O exception defect
 
 `pyturso` 0.7.0 raises an extension `turso.IoError` for directory and

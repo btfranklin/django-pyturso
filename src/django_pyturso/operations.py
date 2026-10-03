@@ -8,9 +8,10 @@ from itertools import chain
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.exceptions import FieldError
 from django.db import DatabaseError, NotSupportedError, models
 from django.db.backends.base.operations import BaseDatabaseOperations
-from django.db.models.aggregates import AnyValue, StdDev, Variance
+from django.db.models.aggregates import AnyValue, Avg, StdDev, Sum, Variance
 from django.db.models.constants import OnConflict
 from django.db.models.expressions import Col, Window
 from django.db.models.functions import (
@@ -75,6 +76,18 @@ class DatabaseOperations(BaseDatabaseOperations):
             raise NotSupportedError(
                 f"{expression.__class__.__name__} isn't supported by django-pyturso v1."
             )
+        if isinstance(expression, (Sum, Avg)):
+            temporal_fields = (models.DateField, models.DateTimeField, models.TimeField)
+            for source in expression.get_source_expressions():
+                try:
+                    output_field = source.output_field
+                except (AttributeError, FieldError):
+                    continue
+                if isinstance(output_field, temporal_fields):
+                    raise NotSupportedError(
+                        "You cannot use Sum or Avg aggregations on date/time fields "
+                        "since date/time is saved as text."
+                    )
         if (
             isinstance(expression, models.Aggregate)
             and getattr(expression, "distinct", False)

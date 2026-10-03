@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from django.db import NotSupportedError, connection, models
-from django.db.models import F, Value
+from django.db.models import Avg, F, FloatField, Sum, Value
 from django.db.models.functions import (
     Extract,
     TruncDay,
@@ -38,6 +38,7 @@ def temporal_rows(django_db_blocker: Any) -> Iterator[Any]:
             date_value = models.DateField(null=True)
             datetime_value = models.DateTimeField(null=True)
             time_value = models.TimeField(null=True)
+            numeric_value = models.IntegerField(null=True)
 
             class Meta:
                 app_label = "temporal_queries"
@@ -47,7 +48,10 @@ def temporal_rows(django_db_blocker: Any) -> Iterator[Any]:
         try:
             TemporalRow.objects.create()
             TemporalRow.objects.create(
-                date_value=MOMENT.date(), datetime_value=MOMENT, time_value=MOMENT.time()
+                date_value=MOMENT.date(),
+                datetime_value=MOMENT,
+                time_value=MOMENT.time(),
+                numeric_value=4,
             )
             yield TemporalRow
         finally:
@@ -105,6 +109,21 @@ def test_nullable_truncation_still_rejects_named_timezone(temporal_rows: Any) ->
     expression = TruncHour("datetime_value", tzinfo=ZoneInfo("America/Phoenix"))
     with pytest.raises(NotSupportedError, match="without timezone conversion"):
         list(temporal_rows.objects.annotate(result=expression).values_list("result", flat=True))
+
+
+@pytest.mark.parametrize("aggregate", [Sum, Avg])
+@pytest.mark.parametrize("field_name", ["date_value", "datetime_value", "time_value"])
+def test_temporal_aggregates_reject_numeric_output(
+    temporal_rows: Any, aggregate: Any, field_name: str
+) -> None:
+    expression = aggregate(field_name, output_field=FloatField())
+    with pytest.raises(NotSupportedError, match="date/time fields"):
+        temporal_rows.objects.aggregate(result=expression)
+
+
+@pytest.mark.parametrize("aggregate", [Sum, Avg])
+def test_numeric_aggregates_remain_supported(temporal_rows: Any, aggregate: Any) -> None:
+    assert temporal_rows.objects.aggregate(result=aggregate("numeric_value"))["result"] == 4
 
 
 @pytest.mark.parametrize("microsecond", [0, 1, 100000, 123456, 999999])

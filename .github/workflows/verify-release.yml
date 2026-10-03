@@ -1,6 +1,7 @@
 name: Verify Release
 
 on:
+    workflow_dispatch:
     push:
         tags:
             - "v*.*.*"
@@ -51,4 +52,9 @@ jobs:
             - uses: pdm-project/setup-pdm@v4
             - run: pdm sync -G dev --clean
             - run: pdm run build
-            - run: pdm run verify-release --expected-version "${GITHUB_REF_NAME#v}"
+            - name: Verify tag artifacts
+              if: github.ref_type == 'tag'
+              run: pdm run verify-release --expected-version "${GITHUB_REF_NAME#v}"
+            - name: Verify branch artifacts
+              if: github.ref_type != 'tag'
+              run: pdm run package-test

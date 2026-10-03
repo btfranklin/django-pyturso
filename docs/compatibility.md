@@ -64,6 +64,9 @@ Schema lookup also ignores ASCII case in table and index names.
 references. Introspection preserves only the ordered column list for that rule.
 Function names and collation names in a `CHECK` constraint are not column
 references. Introspection reports only the columns used by that expression.
+SQL literals such as `NULL`, `TRUE`, and `CURRENT_DATE`, and syntax words such
+as `AND` and `CASE`, do not refer to columns. Turso stores column references
+with these names as quoted identifiers. Introspection retains these references.
 
 ## Schema alterations
 

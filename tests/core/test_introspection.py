@@ -616,6 +616,67 @@ def test_check_expression_labels_do_not_become_columns(
             cursor.execute("DROP TABLE intro_check_labels")
 
 
+@pytest.mark.core
+@pytest.mark.parametrize(
+    "literal", ["NULL", "TRUE", "FALSE", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP"]
+)
+@pytest.mark.parametrize("quoted", [False, True])
+def test_check_literals_are_distinct_from_quoted_column_names(
+    django_db_blocker: Any, literal: str, quoted: bool
+) -> None:
+    operand = connection.ops.quote_name(literal) if quoted else literal
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            'CREATE TABLE intro_check_literals (value TEXT, '
+            f'{connection.ops.quote_name(literal)} TEXT, CONSTRAINT literal_check '
+            f"CHECK(value <> {operand}))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(cursor, "intro_check_literals")
+            assert constraints["literal_check"]["columns"] == (
+                ["value", literal] if quoted else ["value"]
+            )
+        finally:
+            cursor.execute("DROP TABLE intro_check_literals")
+
+
+@pytest.mark.core
+@pytest.mark.parametrize(
+    ("expression", "expected_columns"),
+    [
+        (
+            "CASE WHEN value IS NULL OR value = '' THEN 0 ELSE CAST(value AS INTEGER) END "
+            "BETWEEN 0 AND 100",
+            ["value"],
+        ),
+        ("value GLOB '*'", ["value"]),
+        ("value LIKE '%' ESCAPE '!'", ["value"]),
+        ("NOT (value IN (1, 2))", ["value"]),
+        ("END > 0", ["END"]),
+        ("LIKE > 0", ["LIKE"]),
+        ("GLOB > 0", ["GLOB"]),
+    ],
+)
+def test_check_syntax_is_distinct_from_column_references(
+    django_db_blocker: Any, expression: str, expected_columns: list[str]
+) -> None:
+    names = (
+        "AND", "OR", "IS", "NOT", "CASE", "WHEN", "THEN", "ELSE", "END", "AS", "IN",
+        "BETWEEN", "LIKE", "GLOB", "ESCAPE",
+    )
+    definitions = ", ".join(f"{connection.ops.quote_name(name)} TEXT" for name in names)
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            f"CREATE TABLE intro_check_syntax (value TEXT, {definitions}, "
+            f"CONSTRAINT syntax_check CHECK({expression}))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(cursor, "intro_check_syntax")
+            assert constraints["syntax_check"]["columns"] == expected_columns
+        finally:
+            cursor.execute("DROP TABLE intro_check_syntax")
+
+
 @pytest.mark.parametrize(
     ("definition", "expected_columns"),
     [

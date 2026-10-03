@@ -405,6 +405,36 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 if token.match(sqlparse.tokens.Keyword, "COLLATE"):
                     check_needs_collation = True
                     continue
+                # Turso quotes keyword column names in stored schema SQL.
+                if token.match(
+                    sqlparse.tokens.Keyword,
+                    (
+                        "AND",
+                        "AS",
+                        "BETWEEN",
+                        "CASE",
+                        "CURRENT_DATE",
+                        "CURRENT_TIME",
+                        "CURRENT_TIMESTAMP",
+                        "ELSE",
+                        "END",
+                        "ESCAPE",
+                        "FALSE",
+                        "GLOB",
+                        "IN",
+                        "IS",
+                        "LIKE",
+                        "NOT",
+                        "NULL",
+                        "OR",
+                        "THEN",
+                        "TRUE",
+                        "WHEN",
+                    ),
+                ) or (
+                    token.ttype == sqlparse.tokens.Name and _identifier_key(token.value) == "glob"
+                ):
+                    continue
                 if token.ttype in (
                     sqlparse.tokens.Name,
                     sqlparse.tokens.Keyword,

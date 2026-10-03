@@ -65,8 +65,9 @@ references. Introspection preserves only the ordered column list for that rule.
 Function names and collation names in a `CHECK` constraint are not column
 references. Introspection reports only the columns used by that expression.
 SQL literals such as `NULL`, `TRUE`, and `CURRENT_DATE`, and syntax words such
-as `AND` and `CASE`, do not refer to columns. Turso stores column references
-with these names as quoted identifiers. Introspection retains these references.
+as `AND` and `CASE`, do not refer to columns. Words such as `END`, `LIKE`, and
+`GLOB` can also be column names. Introspection distinguishes their column and
+syntax uses from their position in the expression.
 
 ## Schema alterations
 

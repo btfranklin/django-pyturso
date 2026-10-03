@@ -327,6 +327,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         check = False
         check_needs_collation = False
         check_pending_column: str | None = None
+        check_expects_operand = True
         check_columns: list[str] = []
         columns_by_name = {_identifier_key(column): column for column in columns}
         braces_deep = 0
@@ -389,6 +390,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             if token.match(sqlparse.tokens.Keyword, "CHECK"):
                 check = True
                 check_needs_collation = False
+                check_expects_operand = True
                 check_braces_deep = braces_deep
             elif check:
                 if check_pending_column is not None:
@@ -402,10 +404,27 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 if check_needs_collation:
                     check_needs_collation = False
                     continue
+                if token.ttype == sqlparse.tokens.Punctuation:
+                    check_expects_operand = token.value in {"(", ","}
+                    continue
                 if token.match(sqlparse.tokens.Keyword, "COLLATE"):
                     check_needs_collation = True
                     continue
-                # Turso quotes keyword column names in stored schema SQL.
+                if token.match(
+                    sqlparse.tokens.Keyword,
+                    (
+                        "CURRENT_DATE",
+                        "CURRENT_TIME",
+                        "CURRENT_TIMESTAMP",
+                        "FALSE",
+                        "NULL",
+                        "TRUE",
+                    ),
+                ):
+                    check_expects_operand = False
+                    continue
+                if token.match(sqlparse.tokens.Keyword, "NOT"):
+                    continue
                 if token.match(
                     sqlparse.tokens.Keyword,
                     (
@@ -413,35 +432,39 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         "AS",
                         "BETWEEN",
                         "CASE",
-                        "CURRENT_DATE",
-                        "CURRENT_TIME",
-                        "CURRENT_TIMESTAMP",
                         "ELSE",
-                        "END",
                         "ESCAPE",
-                        "FALSE",
-                        "GLOB",
                         "IN",
                         "IS",
-                        "LIKE",
-                        "NOT",
-                        "NULL",
                         "OR",
                         "THEN",
-                        "TRUE",
                         "WHEN",
                     ),
-                ) or (
-                    token.ttype == sqlparse.tokens.Name and _identifier_key(token.value) == "glob"
                 ):
+                    check_expects_operand = True
+                    continue
+                candidate = _unquote_identifier(token.value)
+                key = _identifier_key(candidate)
+                if (
+                    token.ttype != sqlparse.tokens.Literal.String.Symbol
+                    and key in {"end", "like", "glob"}
+                    and not check_expects_operand
+                ):
+                    check_expects_operand = key != "end"
                     continue
                 if token.ttype in (
                     sqlparse.tokens.Name,
                     sqlparse.tokens.Keyword,
                     sqlparse.tokens.Literal.String.Symbol,
+                ) or (
+                    check_expects_operand
+                    and token.ttype in sqlparse.tokens.Operator
+                    and key == "like"
                 ):
-                    candidate = _unquote_identifier(token.value)
-                    check_pending_column = columns_by_name.get(_identifier_key(candidate))
+                    check_pending_column = columns_by_name.get(key)
+                    check_expects_operand = False
+                else:
+                    check_expects_operand = token.ttype in sqlparse.tokens.Operator
         if token is None:
             raise DatabaseError("Unable to parse an empty table definition.")
         unique_constraint = (

@@ -655,6 +655,15 @@ def test_check_literals_are_distinct_from_quoted_column_names(
         ("END > 0", ["END"]),
         ("LIKE > 0", ["LIKE"]),
         ("GLOB > 0", ["GLOB"]),
+        ("CASE WHEN value > 0 THEN END ELSE 0 END > 0", ["value", "END"]),
+        ("length(END) > 0", ["END"]),
+        ("(value > 0 AND GLOB > 0) OR LIKE > 0", ["value", "GLOB", "LIKE"]),
+        ("value <> 'END'", ["value"]),
+        ("value <> 'LIKE'", ["value"]),
+        ("value <> 'GLOB'", ["value"]),
+        ("value NOT GLOB '*'", ["value"]),
+        ("value NOT LIKE '%'", ["value"]),
+        ("value > 0 AND NOT GLOB", ["value", "GLOB"]),
     ],
 )
 def test_check_syntax_is_distinct_from_column_references(

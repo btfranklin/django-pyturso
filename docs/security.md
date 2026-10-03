@@ -10,8 +10,8 @@ network, cloud, synchronization, credential, or remote-transport surface.
 The backend accepts relative paths, absolute paths, `os.PathLike` values, and
 exactly `:memory:`. It rejects URLs and `file:` URIs. The operating system and
 `pyturso` enforce filesystem access and permissions, so applications must choose
-a trusted path, set appropriate permissions, and keep database and WAL files
-out of web roots.
+a trusted path, set appropriate permissions, and keep database, WAL, and MVCC
+log files out of web roots.
 
 `pyturso` 0.7.0 reports directory and permission open failures as an extension
 `turso.IoError` outside its PEP 249 exception hierarchy. The backend translates

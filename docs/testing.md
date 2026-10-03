@@ -25,7 +25,8 @@ area:
 - `pdm run test-integration` exercises Django's test runner, auth, forms, and
   admin paths.
 - `pdm run test-stress` exercises bounded file lifecycle and crash recovery
-  checks.
+  checks. Process-exit checks cover WAL and MVCC, including committed data,
+  an open transaction, and writes after recovery.
 
 Schema tests keep real migration behavior in `test_schema.py` and the migration
 corpus. Focused table-remake tests cover fields, options, and finalization.

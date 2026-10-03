@@ -80,10 +80,16 @@ def test_repeated_file_connections_do_not_leak_resources(tmp_path: Path) -> None
 
 @pytest.mark.stress
 @pytest.mark.timeout(10)
-def test_process_exit_rolls_back_wal_and_file_remains_writable(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("journal_mode", "transaction_mode"),
+    [("WAL", "IMMEDIATE"), ("MVCC", "IMMEDIATE"), ("MVCC", "CONCURRENT")],
+)
+def test_process_exit_preserves_commits_and_rolls_back_open_transactions(
+    tmp_path: Path, journal_mode: str, transaction_mode: str
+) -> None:
     database = tmp_path / "recovery.db"
     completed = subprocess.run(
-        [sys.executable, str(CRASH_WRITER), str(database)],
+        [sys.executable, str(CRASH_WRITER), str(database), journal_mode, transaction_mode],
         check=False,
         capture_output=True,
         text=True,
@@ -91,13 +97,23 @@ def test_process_exit_rolls_back_wal_and_file_remains_writable(tmp_path: Path) -
     )
     assert completed.returncode == 23
 
-    wrapper = DatabaseWrapper(wrapper_settings(database), "stress_recovery")
+    settings = wrapper_settings(database)
+    settings["OPTIONS"] = {"journal_mode": journal_mode, "transaction_mode": transaction_mode}
+    wrapper = DatabaseWrapper(settings, "stress_recovery")
     try:
         with wrapper.cursor() as cursor:
             cursor.execute("SELECT value FROM recovery_probe")
-            assert cursor.fetchall() == []
+            assert cursor.fetchall() == [("committed",)]
             cursor.execute("INSERT INTO recovery_probe VALUES (%s)", ("recovered",))
-            cursor.execute("SELECT value FROM recovery_probe")
-            assert cursor.fetchall() == [("recovered",)]
+            cursor.execute("SELECT value FROM recovery_probe ORDER BY value")
+            assert cursor.fetchall() == [("committed",), ("recovered",)]
     finally:
         wrapper.close()
+
+    reopened = DatabaseWrapper(settings, "stress_reopened")
+    try:
+        with reopened.cursor() as cursor:
+            cursor.execute("SELECT value FROM recovery_probe ORDER BY value")
+            assert cursor.fetchall() == [("committed",), ("recovered",)]
+    finally:
+        reopened.close()

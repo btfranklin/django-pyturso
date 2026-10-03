@@ -1,4 +1,4 @@
-"""Subprocess helper that exits with an uncommitted Turso WAL transaction."""
+"""Exit with an open Turso transaction after a committed write."""
 
 from __future__ import annotations
 
@@ -10,8 +10,10 @@ import turso
 
 def main() -> None:
     connection = turso.connect(sys.argv[1], isolation_level=None)
+    connection.execute(f"PRAGMA journal_mode = {sys.argv[2]}").fetchall()
     connection.execute("CREATE TABLE recovery_probe (value TEXT)")
-    connection.execute("BEGIN IMMEDIATE")
+    connection.execute("INSERT INTO recovery_probe VALUES (?)", ("committed",))
+    connection.execute(f"BEGIN {sys.argv[3]}")
     connection.execute("INSERT INTO recovery_probe VALUES (?)", ("uncommitted",))
     os._exit(23)
 

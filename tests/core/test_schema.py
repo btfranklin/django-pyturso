@@ -194,6 +194,63 @@ def test_migration_renames_pending_index_columns(
 
 
 @pytest.mark.core
+@pytest.mark.parametrize("old_index", [False, True])
+@pytest.mark.parametrize("same_editor", [False, True])
+def test_column_rename_and_index_change_preserve_data_and_index_state(
+    django_db_blocker: Any, old_index: bool, same_editor: bool
+) -> None:
+    class CreateRenameMigration(Migration):
+        operations = [
+            CreateModel(
+                name="RenameIndex",
+                fields=[
+                    ("id", models.BigAutoField(primary_key=True)),
+                    ("value", models.IntegerField(db_column="old_value", db_index=old_index)),
+                ],
+                options={"db_table": "schema_rename_index"},
+            ),
+            RunSQL("INSERT INTO schema_rename_index (old_value) VALUES (7)"),
+        ]
+
+    class AlterRenameMigration(Migration):
+        operations = [
+            AlterField(
+                "renameindex",
+                "value",
+                models.IntegerField(db_column="new_value", db_index=not old_index),
+            )
+        ]
+
+    create = CreateRenameMigration("create_rename_index", "schema_tests")
+    alter = AlterRenameMigration("alter_rename_index", "schema_tests")
+    with django_db_blocker.unblock():
+        with connection.schema_editor() as editor:
+            state = create.apply(ProjectState(), editor)
+            if same_editor:
+                state = alter.apply(state, editor)
+        try:
+            if not same_editor:
+                with connection.schema_editor() as editor:
+                    state = alter.apply(state, editor)
+            model = state.apps.get_model("schema_tests", "RenameIndex")
+            assert list(model.objects.values_list("value", flat=True)) == [7]
+            with connection.cursor() as cursor:
+                indexes = [
+                    details
+                    for details in connection.introspection.get_constraints(
+                        cursor, model._meta.db_table
+                    ).values()
+                    if details["index"]
+                ]
+            assert [details["columns"] for details in indexes] == (
+                [] if old_index else [["new_value"]]
+            )
+        finally:
+            with connection.schema_editor() as editor:
+                editor.execute("DROP TABLE schema_rename_index")
+
+
+@pytest.mark.core
 def test_migration_operations_remake_tables_and_preserve_data(
     django_db_blocker: Any,
 ) -> None:

@@ -385,6 +385,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
     ) -> None:
         if (
             old_field.column != new_field.column
+            and old_field.db_index == new_field.db_index
             and self.column_sql(model, old_field) == self.column_sql(model, new_field)
             and not (
                 old_field.remote_field

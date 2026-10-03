@@ -25,6 +25,7 @@ def _field(*, column: str, remote_field: object | None = None) -> Any:
         column=column,
         remote_field=remote_field,
         db_constraint=remote_field is not None,
+        db_index=False,
         unique=False,
         primary_key=False,
     )

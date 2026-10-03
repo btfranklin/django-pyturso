@@ -307,6 +307,39 @@ def test_reference_graph_flush_cascade_and_sequence_reset_sql() -> None:
             cursor.execute("DROP TABLE operations_parent")
 
 
+def test_cascade_flush_resolves_mixed_case_table_references() -> None:
+    with connection.cursor() as cursor:
+        cursor.execute('CREATE TABLE "OperationsParent" (id INTEGER PRIMARY KEY)')
+        cursor.execute(
+            'CREATE TABLE "OperationsChild" (id INTEGER PRIMARY KEY, parent_id INTEGER '
+            'REFERENCES "OPERATIONSPARENT"(id) DEFERRABLE INITIALLY DEFERRED)'
+        )
+        cursor.execute(
+            'CREATE TABLE "OperationsGrandchild" (id INTEGER PRIMARY KEY, child_id INTEGER '
+            'REFERENCES "operationschild"(id) DEFERRABLE INITIALLY DEFERRED)'
+        )
+        cursor.execute('INSERT INTO "OperationsParent" VALUES (1)')
+        cursor.execute('INSERT INTO "OperationsChild" VALUES (1, 1)')
+        cursor.execute('INSERT INTO "OperationsGrandchild" VALUES (1, 1)')
+    try:
+        assert [name.lower() for name in OPS._references_graph_for_table("OperationsParent")] == [
+            "operationsparent",
+            "operationschild",
+            "operationsgrandchild",
+        ]
+        statements = OPS.sql_flush(no_style(), ["OperationsParent"], allow_cascade=True)
+        OPS.execute_sql_flush(statements)
+        with connection.cursor() as cursor:
+            for table in ("OperationsParent", "OperationsChild", "OperationsGrandchild"):
+                cursor.execute(f"SELECT count(*) FROM {OPS.quote_name(table)}")
+                assert cursor.fetchone() == (0,)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute('DROP TABLE "OperationsGrandchild"')
+            cursor.execute('DROP TABLE "OperationsChild"')
+            cursor.execute('DROP TABLE "OperationsParent"')
+
+
 def test_value_adaptation_nulls_timezone_and_errors() -> None:
     ops = OPS
     date_value = datetime.date(2026, 7, 13)

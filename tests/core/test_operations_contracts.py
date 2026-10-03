@@ -95,6 +95,13 @@ def test_reference_graph_terminates_and_visits_each_referencing_table_once() -> 
     assert ops._references_graph_for_table("self_loop") == ["self_loop"]
 
 
+def test_reference_graph_keeps_distinct_unicode_table_names() -> None:
+    foreign_keys = {"Straße": (), "STRASSE": (), "child": ("Straße",)}
+    ops = DatabaseOperations(_GraphConnection(foreign_keys))  # type: ignore[arg-type]
+    assert ops._references_graph_for_table("Straße") == ["Straße", "child"]
+    assert ops._references_graph_for_table("STRASSE") == ["STRASSE"]
+
+
 def test_sequence_reset_sql_is_complete_for_multiple_escaped_table_names() -> None:
     assert OPS.sequence_reset_by_name_sql(
         no_style(), [{"table": "alpha"}, {"table": "quote'table"}]

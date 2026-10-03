@@ -31,6 +31,8 @@ from django.db.models.functions import (
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime, parse_time
 
+from .introspection import _identifier_key
+
 # Selected conversion and conflict methods follow Django 6.0.7's SQLite dialect.
 
 _UNSUPPORTED_EXPRESSION_TYPES = (
@@ -289,15 +291,17 @@ class DatabaseOperations(BaseDatabaseOperations):
                 "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
             )
             database_tables = [str(row[0]) for row in cursor.fetchall()]
+            table_names = {_identifier_key(table): table for table in database_tables}
             referencing: dict[str, set[str]] = {}
             for candidate in database_tables:
                 cursor.execute("PRAGMA foreign_key_list(%s)" % self.quote_name(candidate))
                 for row in cursor.fetchall():
-                    referenced_table = str(row[2])
+                    raw_target = str(row[2])
+                    referenced_table = table_names.get(_identifier_key(raw_target), raw_target)
                     referencing.setdefault(referenced_table, set()).add(candidate)
 
         result: list[str] = []
-        pending = [table_name]
+        pending = [table_names.get(_identifier_key(table_name), table_name)]
         seen: set[str] = set()
         while pending:
             current = pending.pop()

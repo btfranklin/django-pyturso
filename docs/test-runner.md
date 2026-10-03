@@ -22,6 +22,10 @@ Parallel test database cloning is unsupported and raises `NotSupportedError`.
 The backend never copies a live database or uses a stdlib SQLite backup as an
 intermediate.
 
+Cascading flush follows foreign-key references through the actual table names.
+ASCII letter case does not affect that lookup. Distinct Unicode names remain
+distinct.
+
 Both supported database modes also run JSON fixture loading, two
 `serialized_rollback` transaction cases, `check --database`, `migrate --plan`,
 and `showmigrations --plan`. These paths are regression-tested through the

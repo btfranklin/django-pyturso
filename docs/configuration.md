@@ -33,6 +33,14 @@ The backend always calls synchronous top-level `turso.connect()` with
 `isolation_level=None`, enables and verifies foreign keys, and validates the
 version reported by the connected engine.
 
+## Database timezones
+
+With `USE_TZ=True`, leave the database `TIME_ZONE` setting unset or use `UTC`
+for database-side datetime queries. Named database timezones can store and read
+datetime values, but conversion from those stored values to UTC is not supported
+in SQL. Extraction, truncation, and date or time lookups reject that conversion
+before execution. Date and time fields do not require timezone conversion.
+
 ## Concurrent writes with MVCC
 
 ```python

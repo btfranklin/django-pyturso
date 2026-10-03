@@ -97,9 +97,10 @@ class DatabaseOperations(BaseDatabaseOperations):
                 "Turso doesn't support DISTINCT on aggregates with multiple arguments."
             )
 
-    @staticmethod
-    def _validate_timezone(tzname: str | None) -> None:
-        if tzname not in (None, "UTC"):
+    def _validate_timezone(self, tzname: str | None) -> None:
+        if tzname not in (None, "UTC") or (
+            tzname is not None and self.connection.timezone_name != tzname
+        ):
             raise NotSupportedError(
                 "django-pyturso supports database-side temporal operations only "
                 "without timezone conversion or in UTC."

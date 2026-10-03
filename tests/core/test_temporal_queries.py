@@ -12,6 +12,7 @@ from django.db import NotSupportedError, connection, models
 from django.db.models import Avg, F, FloatField, Sum, Value
 from django.db.models.functions import (
     Extract,
+    TruncDate,
     TruncDay,
     TruncHour,
     TruncMinute,
@@ -124,6 +125,33 @@ def test_temporal_aggregates_reject_numeric_output(
 @pytest.mark.parametrize("aggregate", [Sum, Avg])
 def test_numeric_aggregates_remain_supported(temporal_rows: Any, aggregate: Any) -> None:
     assert temporal_rows.objects.aggregate(result=aggregate("numeric_value"))["result"] == 4
+
+
+@pytest.mark.parametrize("function", [Extract, TruncHour, TruncWeek, TruncDate, TruncTime])
+def test_utc_queries_reject_conversion_from_a_named_database_timezone(
+    temporal_rows: Any, monkeypatch: pytest.MonkeyPatch, function: Any
+) -> None:
+    monkeypatch.setitem(connection.settings_dict, "TIME_ZONE", "America/Phoenix")
+    monkeypatch.delattr(connection, "timezone", raising=False)
+    monkeypatch.delattr(connection, "timezone_name", raising=False)
+    moment = MOMENT.replace(hour=2)
+    row = temporal_rows.objects.filter(datetime_value__isnull=False)
+    row.update(datetime_value=moment)
+    assert row.get().datetime_value == moment
+    assert row.annotate(result=TruncQuarter("date_value")).get().result == datetime.date(
+        2026, 7, 1
+    )
+    assert row.annotate(result=TruncHour("time_value")).get().result == datetime.time(18)
+
+    expression = (
+        function("datetime_value", lookup_name="hour")
+        if function is Extract
+        else function("datetime_value")
+    )
+    with pytest.raises(NotSupportedError, match="without timezone conversion"):
+        list(row.annotate(result=expression).values_list("result", flat=True))
+    with pytest.raises(NotSupportedError, match="without timezone conversion"):
+        row.filter(datetime_value__date=moment.date()).count()
 
 
 @pytest.mark.parametrize("microsecond", [0, 1, 100000, 123456, 999999])

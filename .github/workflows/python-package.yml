@@ -31,6 +31,28 @@ jobs:
             - run: pdm run build
             - run: pdm run package-test
 
+    current-dependencies:
+        name: Current runtime dependencies
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v7
+            - uses: actions/setup-python@v7
+              with:
+                  python-version: "3.14"
+            - uses: pdm-project/setup-pdm@v4
+            - run: pdm lock --check
+            - run: pdm sync -G dev --clean
+            - run: pdm update --stable --update-eager Django pyturso
+            - run: pdm update -G dev --stable --update-eager django-stubs
+            - run: pdm run check-full
+            - name: Test MVCC in memory
+              run: pdm run test-mvcc
+            - name: Test MVCC in a file
+              env:
+                  DJANGO_PYTURSO_MVCC_DB: ${{ runner.temp }}/django-pyturso-mvcc.db
+              run: pdm run test-mvcc
+
     dependency-review:
         name: Runtime dependency review
         if: github.event_name == 'pull_request'

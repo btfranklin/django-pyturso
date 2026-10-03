@@ -15,6 +15,8 @@ pdm run check-full
 
 This command runs lint, type checks, and the full pytest suite, including
 integration and stress tests. CI and tag verification use this full gate.
+CI also runs the full gate with current stable Django, `pyturso`, and
+`django-stubs` releases. This job updates only its temporary checkout's lockfile.
 
 The ordinary suite covers the supported backend behavior, including focused
 property and fault-injection regressions. Use these groups when changing their

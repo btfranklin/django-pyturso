@@ -31,7 +31,7 @@ jobs:
             - uses: pdm-project/setup-pdm@v4
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
-            - run: pdm run check
+            - run: pdm run check-full
 
     package-verification:
         needs: platform-verification

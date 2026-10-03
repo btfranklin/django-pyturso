@@ -6,6 +6,16 @@ Run the quick local gate with:
 pdm run check
 ```
 
+This command runs lint, type checks, and tests without the integration and
+stress groups. Run the full gate with:
+
+```bash
+pdm run check-full
+```
+
+This command runs lint, type checks, and the full pytest suite, including
+integration and stress tests. CI and tag verification use this full gate.
+
 The ordinary suite covers the supported backend behavior, including focused
 property and fault-injection regressions. Use these groups when changing their
 area:

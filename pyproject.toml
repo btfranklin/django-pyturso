@@ -48,6 +48,7 @@ build = "pdm build"
 package-test = "python scripts/verify_packages.py"
 verify-release = "python scripts/verify_packages.py"
 check = { composite = ["lint", "typecheck", "test-fast"] }
+check-full = { composite = ["lint", "typecheck", "test"] }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -320,6 +320,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         field_name = None
         constraint_name = None
         unique = False
+        unique_needs_column = False
         unique_columns: list[str] = []
         check = False
         check_columns: list[str] = []
@@ -351,19 +352,23 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         constraint_name = _unquote_identifier(token.value)
                 if token.match(sqlparse.tokens.Keyword, "UNIQUE"):
                     unique = True
+                    unique_needs_column = True
                     unique_braces_deep = braces_deep
                 elif unique:
                     if unique_braces_deep == braces_deep:
                         if unique_columns:
                             unique = False
                         continue
-                    if token.ttype in (
+                    if token.match(sqlparse.tokens.Punctuation, ","):
+                        unique_needs_column = True
+                    elif unique_needs_column and token.ttype in (
                         sqlparse.tokens.Name,
                         sqlparse.tokens.Keyword,
                         sqlparse.tokens.Literal.String.Symbol,
                     ):
                         name = _unquote_identifier(token.value)
                         unique_columns.append(columns_by_name.get(_identifier_key(name), name))
+                        unique_needs_column = False
             else:
                 if field_name is None:
                     if token.ttype in (

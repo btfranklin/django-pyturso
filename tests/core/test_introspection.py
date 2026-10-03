@@ -526,6 +526,24 @@ def test_json_introspection_keeps_distinct_unicode_identifiers(
             cursor.execute("DROP TABLE intro_json_case")
 
 
+@pytest.mark.core
+def test_unique_constraint_modifiers_do_not_become_columns(django_db_blocker: Any) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE TABLE intro_collated_unique (id INTEGER PRIMARY KEY, value TEXT, "
+            'other TEXT, "NOCASE" TEXT, CONSTRAINT collated_pair '
+            "UNIQUE(value COLLATE NOCASE DESC, other ASC))"
+        )
+        try:
+            constraints = connection.introspection.get_constraints(cursor, "intro_collated_unique")
+            assert constraints["collated_pair"]["columns"] == ["value", "other"]
+            output = StringIO()
+            call_command("inspectdb", "intro_collated_unique", stdout=output)
+            assert "unique_together = (('value', 'other'),)" in output.getvalue()
+        finally:
+            cursor.execute("DROP TABLE intro_collated_unique")
+
+
 @pytest.mark.parametrize(
     ("definition", "expected_columns"),
     [

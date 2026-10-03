@@ -7,7 +7,7 @@ import re
 import time
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from itertools import tee
+from itertools import chain
 from typing import Any, cast
 
 import turso as Database
@@ -618,12 +618,15 @@ class TursoCursorWrapper(Database.Cursor):
 
     def executemany(self, query: str, param_list: Iterable[Any]) -> Any:
         with self._django_transaction():
-            peekable, preserved = tee(iter(param_list))
-            first = next(peekable, None)
-            if first is None:
+            parameters = iter(param_list)
+            try:
+                first = next(parameters)
+            except StopIteration:
                 return self
             names = list(first) if isinstance(first, Mapping) else None
-            return super().executemany(self.convert_query(query, param_names=names), preserved)
+            return super().executemany(
+                self.convert_query(query, param_names=names), chain((first,), parameters)
+            )
 
     def fetchone(self) -> Any:
         with self._django_transaction():

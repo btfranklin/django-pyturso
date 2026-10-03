@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import weakref
+from collections.abc import Iterator
 from typing import Any, cast
 
 import pytest
@@ -216,12 +218,51 @@ def test_named_parameters_execute_and_executemany_through_driver(
                 "INSERT INTO sample VALUES (%(value)s)",
                 ({"value": "first"}, {"value": "second"}),
             )
+
             empty_result = cursor.executemany(
                 "INSERT INTO sample VALUES (%(value)s)",
-                [],
+                cast(Any, iter(())),
             )
             assert empty_result is cursor.cursor
             cursor.execute("SELECT value FROM sample ORDER BY value")
             assert cursor.fetchall() == [("first",), ("second",)]
+    finally:
+        wrapper._force_close()
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_executemany_streams_parameter_rows(named: bool, django_db_blocker: Any) -> None:
+    wrapper = DatabaseWrapper(wrapper_settings(), f"streaming_{named}")
+    live_rows: list[weakref.ReferenceType[Any]] = []
+    peak_live = 0
+
+    class Row(list[Any]):
+        pass
+
+    class NamedRow(dict[str, Any]):
+        pass
+
+    def rows() -> Iterator[Row | NamedRow]:
+        nonlocal peak_live
+        for index in range(1000):
+            row = NamedRow(value=index) if named else Row([index])
+            live_rows.append(weakref.ref(row))
+            yield row
+            del row
+            peak_live = max(peak_live, sum(reference() is not None for reference in live_rows))
+
+    try:
+        with django_db_blocker.unblock(), wrapper.cursor() as cursor:
+            cursor.execute("CREATE TABLE streamed (value INTEGER)")
+            query = (
+                "INSERT INTO streamed VALUES (%(value)s)"
+                if named
+                else "INSERT INTO streamed VALUES (%s)"
+            )
+            cursor.executemany(query, cast(Any, rows()))
+            cursor.execute("SELECT COUNT(*) FROM streamed")
+            assert cursor.fetchone() == (1000,)
+
+        assert peak_live <= 4
     finally:
         wrapper._force_close()

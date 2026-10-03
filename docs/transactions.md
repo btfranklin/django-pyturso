@@ -14,6 +14,9 @@ A pending write fetched after a manual commit or rollback belongs to the next
 manual transaction and can be rolled back. Fetching within a failed atomic
 transaction raises `TransactionManagementError`, including for read cursors.
 
+`executemany()` consumes parameter iterators without retaining the complete batch.
+It accepts positional or named parameter rows. An empty iterator is a no-op.
+
 Enabling autocommit while work remains active raises
 `TransactionManagementError`; callers must choose commit or rollback. Closing
 with active work rolls it back. Healthy lifecycle closes preserve an in-memory

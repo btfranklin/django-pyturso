@@ -62,10 +62,11 @@ transactions, and schema cleanup tests for MVCC.
 Run the migration corpus and application checks in MVCC mode with:
 
 ```bash
-pdm run pytest --ds=tests.settings.turso_mvcc tests/core/test_migration_corpus.py tests/core/test_orm.py tests/core/constraints/test_foreign_keys.py tests/integration/test_user_paths.py
+pdm run test-mvcc
 ```
 
 Set `DJANGO_PYTURSO_MVCC_DB` to a disposable file path for the file-backed run.
 Leave it unset for an in-memory database. These checks run in one process.
+CI and tag verification run this task with both database types.
 They do not claim support for multiple worker processes or crash recovery
 under every possible interruption.

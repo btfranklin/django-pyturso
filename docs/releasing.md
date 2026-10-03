@@ -1,9 +1,11 @@
 # Releasing
 
-1. Run `pdm run check-full`, then `pdm run build` and `pdm run package-test`.
+1. Run `pdm run check-full` and `pdm run test-mvcc` with both an in-memory and
+   a disposable file database. Then run `pdm run build` and `pdm run package-test`.
 2. Create and push a semantic version tag matching `v*.*.*`.
 3. The tag verifies the backend on macOS, Linux, and Windows, then builds and
-   clean-installs the exact tagged artifacts.
+   clean-installs the exact tagged artifacts. Each platform runs the MVCC
+   application checks with both database types.
 4. The same tag creates a GitHub draft release. Review its notes and publish it
    after verification completes.
 5. Publishing the GitHub Release triggers PyPI Trusted Publishing.

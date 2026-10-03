@@ -22,6 +22,12 @@ jobs:
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
             - run: pdm run check-full
+            - name: Test MVCC in memory
+              run: pdm run test-mvcc
+            - name: Test MVCC in a file
+              env:
+                  DJANGO_PYTURSO_MVCC_DB: ${{ runner.temp }}/django-pyturso-mvcc.db
+              run: pdm run test-mvcc
             - run: pdm run build
             - run: pdm run package-test
 

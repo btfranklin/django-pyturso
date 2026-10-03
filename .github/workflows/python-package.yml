@@ -21,6 +21,9 @@ jobs:
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
+              with:
+                  cache: true
+                  cache-dependency-path: pdm.lock
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
             - run: pdm run check-full
@@ -47,6 +50,9 @@ jobs:
               with:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
+              with:
+                  cache: true
+                  cache-dependency-path: pdm.lock
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
             - run: pdm update --stable --update-eager Django pyturso

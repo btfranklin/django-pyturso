@@ -18,6 +18,14 @@ integration and stress tests. CI and tag verification use this full gate.
 CI also runs the full gate with current stable Django, `pyturso`, and
 `django-stubs` releases. This job updates only its temporary checkout's lockfile.
 
+Test and verification jobs use PDM's dependency cache. The cache key includes
+the operating system, CPU type, Python version, and hash of `pdm.lock`.
+The cache contains the environment and package files. Each job runs
+`pdm sync -G dev --clean` before tests or package builds. To test cache reuse,
+run the platform workflow twice on the same commit and check the PDM setup and
+post-step logs. If the cache is absent, the first successful run saves it.
+The next run must restore the same key. Both runs must pass all checks.
+
 The ordinary suite covers the supported backend behavior, including focused
 property and fault-injection regressions. Use these groups when changing their
 area:

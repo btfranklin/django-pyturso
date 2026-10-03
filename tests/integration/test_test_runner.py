@@ -30,6 +30,22 @@ def run_manage(
 
 
 @pytest.mark.integration
+def test_manage_uses_project_package_when_root_is_on_pythonpath(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(ROOT), os.environ.get("PYTHONPATH", "")]))
+    result = run_manage(
+        "check",
+        "--database",
+        "default",
+        "--verbosity=0",
+        settings="tests.settings.turso_memory",
+        database_directory=tmp_path,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.integration
 def test_memory_live_server_fails_before_thread_sharing(tmp_path: Path) -> None:
     result = run_manage(
         "test",

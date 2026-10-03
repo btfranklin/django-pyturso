@@ -60,7 +60,7 @@ class DatabaseCreation(BaseDatabaseCreation):
 
     @staticmethod
     def _remove_database_artifacts(path: Path) -> None:
-        for artifact in (path, Path(f"{path}-wal")):
+        for artifact in (path, Path(f"{path}-wal"), Path(f"{path}-log")):
             if artifact.exists():
                 artifact.unlink()
 

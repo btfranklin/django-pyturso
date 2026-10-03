@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import turso
 from django.db import NotSupportedError
 
 from django_pyturso.base import DatabaseWrapper
@@ -43,15 +44,49 @@ def test_pathlike_memory_test_database_stays_exact_memory() -> None:
 def test_file_destroy_removes_only_verified_artifacts(tmp_path: Path) -> None:
     database = tmp_path / "test_app.db"
     wal = Path(f"{database}-wal")
+    log = Path(f"{database}-log")
     unrelated = Path(f"{database}-other")
-    for path in (database, wal, unrelated):
+    for path in (database, wal, log, unrelated):
         path.write_text(path.name)
     wrapper = DatabaseWrapper(wrapper_settings(NAME=database), "probe")
     creation = cast(DatabaseCreation, wrapper.creation)
     creation._destroy_test_db(str(database), verbosity=0)
     assert not database.exists()
     assert not wal.exists()
+    assert not log.exists()
     assert unrelated.exists()
+
+
+@pytest.mark.parametrize("journal_mode", ["WAL", "MVCC"])
+@pytest.mark.parametrize("cleanup", ["create", "destroy"])
+def test_file_test_database_can_reopen_after_cleanup(
+    tmp_path: Path, journal_mode: str, cleanup: str
+) -> None:
+    creation = _creation(name=tmp_path / "app.db")
+    database = Path(creation._get_test_db_name())
+    original = turso.connect(str(database), isolation_level=None)
+    try:
+        original.execute(f"PRAGMA journal_mode = {journal_mode}").fetchall()
+        original.execute("CREATE TABLE old_rows(n INTEGER)")
+        original.execute("INSERT INTO old_rows VALUES (1)")
+    finally:
+        original.close()
+
+    if cleanup == "create":
+        creation._create_test_db(verbosity=0, autoclobber=True)
+    else:
+        creation._destroy_test_db(str(database), verbosity=0)
+    assert not database.exists()
+    assert not Path(f"{database}-wal").exists()
+    assert not Path(f"{database}-log").exists()
+
+    reopened = turso.connect(str(database), isolation_level=None)
+    try:
+        reopened.execute(f"PRAGMA journal_mode = {journal_mode}").fetchall()
+        reopened.execute("CREATE TABLE new_rows(n INTEGER)")
+        assert reopened.execute("SELECT count(*) FROM new_rows").fetchone() == (0,)
+    finally:
+        reopened.close()
 
 
 def test_parallel_cloning_and_memory_mirrors_are_rejected() -> None:

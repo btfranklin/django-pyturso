@@ -29,8 +29,9 @@ activation paths.
 2. Explicit ORM functions, beginning with a small UUID7 surface.
 3. Optional vector and FTS contrib integrations with their own schema and
    migration contracts.
-4. Separate operational backends for sync or remote transports; concurrency,
-   callable-based retry, encryption, and async require independent designs.
+4. Separate operational backends for sync or remote transports; multi-process
+   concurrency, callable-based retry, encryption, and async require independent
+   designs.
 
 `generate_series()` and operational controls remain cursor/raw-SQL or explicit
 service/management-command concerns until Django offers suitable public seams.

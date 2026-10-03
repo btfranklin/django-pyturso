@@ -15,6 +15,9 @@ and in-memory live-server use fail during setup because separate Turso
 connections do not share an in-memory database. Configure a disposable file
 database for those paths.
 
+The live-server test reads a stored row over HTTP, changes it in the test thread,
+and reads the new value over HTTP. This checks shared file access between threads.
+
 Parallel test database cloning is unsupported and raises `NotSupportedError`.
 The backend never copies a live database or uses a stdlib SQLite backup as an
 intermediate.

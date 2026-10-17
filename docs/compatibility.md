@@ -39,6 +39,10 @@ exclusion remains in force.
 `Sum` and `Avg` reject date, datetime, and time fields. These values are
 stored as text, so a numeric aggregate can return a misleading result.
 
+`TruncHour`, `TruncMinute`, and `TruncSecond` can return a `TimeField` from
+either a `TimeField` or `DateTimeField` input. The time result has whole-second
+precision, as required by these truncation units.
+
 ## Driver I/O exception defect
 
 `pyturso` 0.7.0 raises an extension `turso.IoError` for directory and

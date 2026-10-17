@@ -215,7 +215,9 @@ class DatabaseOperations(BaseDatabaseOperations):
         lookup_type = lookup_type.lower()
         if lookup_type not in {"hour", "minute", "second"}:
             raise NotSupportedError(f"Unsupported time truncation: {lookup_type}.")
-        parsed = self._time_extension_input(sql, time_only=True)
+        # Django may select time truncation from the result field even when
+        # the input expression is a datetime. Reduce it to its time first.
+        parsed = self._time_extension_input(f"time({sql})", time_only=True)
         truncated = f"time_trunc({parsed}, '{lookup_type}')"
         result = self._format_time_extension(truncated, time_only=True)
         return f"CASE WHEN {sql} IS NULL THEN NULL ELSE {result} END", tuple(params) * 2

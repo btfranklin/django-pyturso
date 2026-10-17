@@ -112,6 +112,37 @@ def test_nullable_truncation_still_rejects_named_timezone(temporal_rows: Any) ->
         list(temporal_rows.objects.annotate(result=expression).values_list("result", flat=True))
 
 
+@pytest.mark.parametrize("debug", [False, True])
+@pytest.mark.parametrize(
+    ("function", "expected"),
+    [
+        (TruncHour, datetime.time(18)),
+        (TruncMinute, datetime.time(18, 42)),
+        (TruncSecond, datetime.time(18, 42, 31)),
+    ],
+)
+def test_time_output_truncation_accepts_datetime_inputs(
+    temporal_rows: Any, debug: bool, function: Any, expected: datetime.time
+) -> None:
+    with override_settings(DEBUG=debug):
+        rows = temporal_rows.objects.order_by("pk")
+        for field_name in ("datetime_value", "time_value"):
+            expression = function(field_name, output_field=models.TimeField())
+            assert list(rows.annotate(result=expression).values_list("result", flat=True)) == [
+                None, expected
+            ]
+
+        for value, field in (
+            (MOMENT, models.DateTimeField()),
+            (MOMENT.time(), models.TimeField()),
+            (None, models.DateTimeField()),
+            (None, models.TimeField()),
+        ):
+            expression = function(Value(value, output_field=field), output_field=models.TimeField())
+            result = rows.annotate(result=expression).values_list("result", flat=True).first()
+            assert result == (expected if value is not None else None)
+
+
 @pytest.mark.parametrize("aggregate", [Sum, Avg])
 @pytest.mark.parametrize("field_name", ["date_value", "datetime_value", "time_value"])
 def test_temporal_aggregates_reject_numeric_output(

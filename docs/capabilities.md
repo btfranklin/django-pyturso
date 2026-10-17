@@ -23,6 +23,8 @@ text representation matches stored `TimeField` values and bound time values.
 Bitwise AND, OR, and shifts use native SQL operations. Bitwise XOR is not
 supported because the engine does not provide the required function. Django
 XOR expressions raise `NotSupportedError` before SQL execution.
+The `BitAnd`, `BitOr`, and `BitXor` aggregates are not supported. They also raise
+`NotSupportedError` before SQL execution, with or without a default value.
 
 Turso-specific ORM integrations are outside the v1 package surface. When a
 future integration is ready, it must ship as an ordinary documented API with a

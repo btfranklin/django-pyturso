@@ -122,6 +122,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_aggregate_order_by_clause = False
     supports_aggregate_distinct_multiple_argument = False
     supports_any_value = False
+    supports_bit_aggregations = False
     supports_index_on_text_field = True
     supports_over_clause = False
     supports_frame_range_fixed_distance = False

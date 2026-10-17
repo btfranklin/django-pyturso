@@ -39,6 +39,7 @@ def test_high_risk_conservative_values_match_the_v1_contract() -> None:
         "supports_aggregate_filter_clause": False,
         "supports_aggregate_order_by_clause": False,
         "supports_any_value": False,
+        "supports_bit_aggregations": False,
         "supports_cast_with_precision": False,
         "supports_json_field_contains": False,
         "supports_non_deterministic_collations": False,

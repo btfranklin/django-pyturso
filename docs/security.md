@@ -30,11 +30,15 @@ The package requires `sqlparse>=0.6.0` to exclude releases with known SQL parser
 denial-of-service defects.
 
 Run `pdm run audit` to check the locked runtime dependencies against PyPI's
-advisory data. This command checks the lockfile, exports exact versions and
-artifact hashes through PDM, and runs `pip-audit` without dependency resolution
-or package installation. It excludes development tools and the local package.
+advisory data. This command checks the lockfile, exports exact versions
+through PDM, then queries PyPI's release JSON API. It does not resolve or install
+packages. It excludes development tools and the local package.
 Platform markers select the runtime dependencies for the current platform.
 Known vulnerabilities, incomplete collection, and service errors fail the check.
+Each response must identify the requested package and version and contain a
+valid vulnerability list. Invalid advisory records, withdrawal timestamps,
+duplicate JSON keys, oversized responses, and redirects also fail the check.
+Only advisories with a valid withdrawal timestamp are excluded.
 The command requires network access; the offline aggregate checks do not run it.
 
 CI runs this check on pull requests and pushes to `main`, for both locked and

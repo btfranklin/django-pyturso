@@ -25,12 +25,10 @@ package.
 
 ## Quickstart
 
-Install [Perfect Doc](https://github.com/btfranklin/perfect-doc#build-and-install)
-and put it on `PATH` before running the repository checks.
+In your Django project's PDM environment, install the package:
 
 ```bash
-pdm install --group dev
-pdm run check
+pdm add "django-pyturso>=0.3.0"
 ```
 
 Configure a Django database with no external service:
@@ -50,6 +48,17 @@ compatibility shims, and other experimental engine features are excluded.
 MVCC concurrent transactions are available through explicit
 [configuration](docs/configuration.md#concurrent-writes-with-mvcc) for one
 process per database.
+
+### Repository checks
+
+To work on this repository, install
+[Perfect Doc](https://github.com/btfranklin/perfect-doc#build-and-install)
+and put it on `PATH` before running the checks.
+
+```bash
+pdm install --group dev
+pdm run check
+```
 
 ## Navigation
 

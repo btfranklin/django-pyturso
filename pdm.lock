@@ -5,7 +5,7 @@
 groups = ["default", "dev"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.1"
-content_hash = "sha256:810f1ddc2a15484f6b7c6de1dd3a076be178f50c4ad15640e6059aa90cc93204"
+content_hash = "sha256:7dd4663a652ef77e8d8ec47bbdbeb357d0312d6b1759e2bb473d9c73460befb2"
 
 [[metadata.targets]]
 requires_python = ">=3.14"
@@ -99,7 +99,7 @@ files = [
 
 [[package]]
 name = "django"
-version = "6.0.7"
+version = "6.1.2"
 requires_python = ">=3.12"
 summary = "A high-level Python web framework that encourages rapid development and clean, pragmatic design."
 groups = ["default", "dev"]
@@ -109,26 +109,25 @@ dependencies = [
     "tzdata; sys_platform == \"win32\"",
 ]
 files = [
-    {file = "django-6.0.7-py3-none-any.whl", hash = "sha256:a037427c2288443a8c02a1b02295a31c239663aa682bc50b1976afb7cf6a769e"},
-    {file = "django-6.0.7.tar.gz", hash = "sha256:2998503fc083124fb58037084bfa00de323c7c743f05f1b4284e77bff0ab8890"},
+    {file = "django-6.1.2-py3-none-any.whl", hash = "sha256:141efee6ec64d1db6db90683bf734c550102450f444fb099063b0be1bd27d991"},
+    {file = "django-6.1.2.tar.gz", hash = "sha256:a1e92451ccb8b514e91bbb3b6d186d20b4030558f116b5d9de6535455ff210b7"},
 ]
 
 [[package]]
 name = "django-stubs"
-version = "6.0.7"
-requires_python = ">=3.10"
+version = "6.1.2"
+requires_python = ">=3.11"
 summary = "Mypy stubs for Django"
 groups = ["dev"]
 dependencies = [
     "django",
     "django-stubs-ext>=6.0.2",
-    "tomli; python_full_version < \"3.11\"",
     "types-pyyaml",
     "typing-extensions>=4.11.0",
 ]
 files = [
-    {file = "django_stubs-6.0.7-py3-none-any.whl", hash = "sha256:7ed9a14c438e589272ca04e966dee82a4d1ff7ca5c2171bc986c50a0d03ec35b"},
-    {file = "django_stubs-6.0.7.tar.gz", hash = "sha256:bc55431c0af745a64e39cf33a8d36c87dccbedeae2fe26fab47dd355270e8538"},
+    {file = "django_stubs-6.1.2-py3-none-any.whl", hash = "sha256:ffb6e74f54b8c1f9b2f3bc4852c5abbaa2324b2a7cb1c51854c5f95abe67165c"},
+    {file = "django_stubs-6.1.2.tar.gz", hash = "sha256:d62b15fa5cbae79b1922d015e1454d299959d230221dadb23f65c749480b97ec"},
 ]
 
 [[package]]

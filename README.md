@@ -44,7 +44,7 @@ DATABASES = {
 }
 ```
 
-The package requires CPython 3.14 or later and targets Django 6 and embedded
+The package requires CPython 3.14 or later, Django 6.1.2 or later, and embedded
 local Turso through `pyturso`. Cloud transports, remote sync, SQLite fallbacks,
 compatibility shims, and other experimental engine features are excluded.
 MVCC concurrent transactions are available through explicit

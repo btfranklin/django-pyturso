@@ -25,7 +25,7 @@
 ## Working Rules
 
 - Use PDM; direct dependencies use `>=` constraints.
-- Target Django 6 and local embedded Turso through `pyturso` only.
+- Target Django 6.1 and local embedded Turso through `pyturso` only.
 - Implement Django's documented backend interface directly. Do not add shims,
   aliases, monkey patches, cloud transports, or an SQLite fallback.
 - Keep Django compatibility claims covered by tests and update `docs/` whenever

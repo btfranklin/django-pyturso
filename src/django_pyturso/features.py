@@ -9,7 +9,7 @@ from django.db.backends.base.features import BaseDatabaseFeatures
 
 
 class DatabaseFeatures(BaseDatabaseFeatures):
-    """Django capabilities audited against 6.0.7 and the supported Turso floor."""
+    """Django capabilities audited against 6.1.2 and the supported Turso floor."""
 
     minimum_database_version = (3, 50, 0)
     gis_enabled = False

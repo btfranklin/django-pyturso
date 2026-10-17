@@ -4,11 +4,10 @@ from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import sqlparse
-from django import VERSION as DJANGO_VERSION
 from django.core.management import call_command
 from django.core.management.color import no_style
 from django.db import DatabaseError, connection, models
@@ -186,7 +185,7 @@ def test_sqlite_like_user_tables_remain_visible_and_cascade_flush(
     [{"journal_mode": "WAL"}, {"journal_mode": "MVCC", "transaction_mode": "CONCURRENT"}],
     ids=["wal", "mvcc"],
 )
-def test_inspectdb_foreign_keys_use_the_installed_django_relation_interface(
+def test_inspectdb_foreign_keys_preserve_database_deletion_actions(
     django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
 ) -> None:
     with django_db_blocker.unblock(), registered_wrapper(
@@ -198,22 +197,15 @@ def test_inspectdb_foreign_keys_use_the_installed_django_relation_interface(
                 "CREATE TABLE relation_child (id INTEGER PRIMARY KEY, parent_id INTEGER "
                 "REFERENCES relation_parent(id) ON DELETE CASCADE)"
             )
-            relation = wrapper.introspection.get_relations(cursor, "relation_child")["parent_id"]
-            assert relation[:2] == ("id", "relation_parent")
-            if DJANGO_VERSION >= (6, 1):
-                assert len(relation) == 3
-                assert str(relation[2]) == "DB_CASCADE"
-            else:
-                assert len(relation) == 2
+            introspection = cast(DatabaseIntrospection, wrapper.introspection)
+            relation = introspection.get_relations(cursor, "relation_child")["parent_id"]
+            assert relation == ("id", "relation_parent", models.DB_CASCADE)
 
         output = StringIO()
         call_command("inspectdb", stdout=output, database=wrapper.alias)
         source = output.getvalue()
         assert "parent = models.ForeignKey(" in source
-        if DJANGO_VERSION >= (6, 1):
-            assert ", models.DB_CASCADE" in source
-        else:
-            assert "models.DO_NOTHING" in source
+        assert ", models.DB_CASCADE" in source
 
 
 @pytest.mark.core
@@ -429,23 +421,14 @@ def test_relations_sequences_and_index_constraints(django_db_blocker: Any) -> No
         )
         cursor.execute("CREATE INDEX intro_payload_expression ON intro_child (LOWER(payload))")
         try:
-            assert {
-                name: relation[:2]
-                for name, relation in connection.introspection.get_relations(
-                    cursor, "intro_child"
-                ).items()
-            } == {
-                "part_a": ("part_a", "intro_target"),
-                "part_b": ("part_b", "intro_target"),
+            introspection = cast(DatabaseIntrospection, connection.introspection)
+            assert introspection.get_relations(cursor, "intro_child") == {
+                "part_a": ("part_a", "intro_target", models.DO_NOTHING),
+                "part_b": ("part_b", "intro_target", models.DO_NOTHING),
             }
-            assert {
-                name: relation[:2]
-                for name, relation in connection.introspection.get_relations(
-                    cursor, "intro_implicit_child"
-                ).items()
-            } == {
-                "part_a": ("part_a", "intro_target"),
-                "part_b": ("part_b", "intro_target"),
+            assert introspection.get_relations(cursor, "intro_implicit_child") == {
+                "part_a": ("part_a", "intro_target", models.DO_NOTHING),
+                "part_b": ("part_b", "intro_target", models.DO_NOTHING),
             }
             assert connection.introspection.get_sequences(cursor, "intro_child") == [
                 {"table": "intro_child", "column": "id"}

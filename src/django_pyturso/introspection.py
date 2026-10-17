@@ -184,21 +184,20 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             return []
         return [{"table": table_name, "column": primary_key_columns[0]}]
 
-    def get_relations(self, cursor: Any, table_name: str) -> dict[str, Any]:
+    # django-stubs 6.1.2 still declares the old two-value relation tuple.
+    def get_relations(  # type: ignore[override]
+        self, cursor: Any, table_name: str
+    ) -> dict[str, tuple[str, str, Any]]:
         rows = self._foreign_key_rows(cursor, table_name)
-        relations: dict[str, Any] = {}
-        # Django 6.1 adds deletion actions to the relation metadata interface.
-        on_delete_types = getattr(self, "on_delete_types", None)
+        relations: dict[str, tuple[str, str, Any]] = {}
         for rows_for_constraint in rows.values():
             target_table = rows_for_constraint[0][2]
             target_columns = self._resolve_foreign_key_target_columns(
                 cursor, target_table, rows_for_constraint
             )
             for row, target_column in zip(rows_for_constraint, target_columns, strict=True):
-                relation = (target_column, target_table)
                 relations[row[3]] = (
-                    (*relation, on_delete_types.get(row[6]))
-                    if on_delete_types is not None else relation
+                    target_column, target_table, self.on_delete_types.get(row[6])
                 )
         return relations
 

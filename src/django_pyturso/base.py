@@ -6,8 +6,9 @@ import os
 import re
 import time
 from collections import deque
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sized
 from contextlib import contextmanager
+from dataclasses import dataclass
 from itertools import chain
 from typing import Any, cast
 
@@ -483,10 +484,44 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 _IDENTIFIER_QUOTES = {'"': '"', "`": "`", "[": "]"}
 
 
-def _convert_placeholders(query: str, *, param_names: list[str] | None) -> str:
+@dataclass(frozen=True)
+class _QueryBindings:
+    query: str
+    positional_count: int
+    required_names: frozenset[str]
+    native_bindings: bool
+
+    def prepare_params(self, params: Any) -> Any:
+        if not isinstance(params, (Mapping, Sized)):
+            params = tuple(params)
+        if self.required_names:
+            if not isinstance(params, Mapping):
+                raise Database.ProgrammingError("Named placeholders require a parameter mapping.")
+            for name in self.required_names:
+                if name not in params:
+                    raise KeyError(name)
+        elif self.positional_count and isinstance(params, Mapping):
+            raise Database.ProgrammingError("Positional placeholders require a parameter sequence.")
+        elif not isinstance(params, Mapping):
+            supplied = len(params)
+            # Native placeholders retain the driver's binding rules. Count only
+            # Django placeholders when both forms occur in the same statement.
+            if supplied < self.positional_count or (
+                not self.native_bindings and supplied != self.positional_count
+            ):
+                raise Database.ProgrammingError(
+                    f"Expected {self.positional_count} parameters, received {supplied}."
+                )
+        return params
+
+
+def _convert_placeholders(query: str, *, param_names: list[str] | None) -> _QueryBindings:
     """Translate Django placeholders without interpreting quoted SQL text."""
     converted: list[str] = []
     names = set(param_names) if param_names is not None else None
+    positional_count = 0
+    required_names: set[str] = set()
+    native_bindings = False
     index = 0
     state = "sql"
     closing_quote = ""
@@ -562,6 +597,7 @@ def _convert_placeholders(query: str, *, param_names: list[str] | None) -> str:
             index += 2
         elif names is None and character == "%" and following == "s":
             converted.append("?")
+            positional_count += 1
             index += 2
         elif names is not None and character == "%" and following == "(":
             placeholder_end = index + 2
@@ -583,13 +619,18 @@ def _convert_placeholders(query: str, *, param_names: list[str] | None) -> str:
             name = query[index + 2 : placeholder_end]
             if name not in names:
                 raise KeyError(name)
+            required_names.add(name)
             converted.append(f":{name}")
             index = placeholder_end + 2
         else:
+            if character in "?:@$":
+                native_bindings = True
             converted.append(character)
             index += 1
 
-    return "".join(converted)
+    return _QueryBindings(
+        "".join(converted), positional_count, frozenset(required_names), native_bindings
+    )
 
 
 def _is_write_statement(query: str) -> bool:
@@ -657,7 +698,8 @@ class TursoCursorWrapper(Database.Cursor):
                 result = super().execute(query)
             else:
                 names = list(params) if isinstance(params, Mapping) else None
-                result = super().execute(self.convert_query(query, param_names=names), params)
+                bindings = _convert_placeholders(query, param_names=names)
+                result = super().execute(bindings.query, bindings.prepare_params(params))
             if self.description is not None and _is_write_statement(query):
                 # Complete the write now. Later fetches must not write after a
                 # commit or rollback. Ordinary SELECT results remain streamed.
@@ -673,9 +715,13 @@ class TursoCursorWrapper(Database.Cursor):
                 return self
             self._returning_rows = None
             names = list(first) if isinstance(first, Mapping) else None
-            return super().executemany(
-                self.convert_query(query, param_names=names), chain((first,), parameters)
-            )
+            bindings = _convert_placeholders(query, param_names=names)
+
+            def validated_rows() -> Iterator[Any]:
+                for row in chain((first,), parameters):
+                    yield bindings.prepare_params(row)
+
+            return super().executemany(bindings.query, validated_rows())
 
     def fetchone(self) -> Any:
         with self._django_transaction():
@@ -709,4 +755,4 @@ class TursoCursorWrapper(Database.Cursor):
 
     @staticmethod
     def convert_query(query: str, *, param_names: list[str] | None = None) -> str:
-        return _convert_placeholders(query, param_names=param_names)
+        return _convert_placeholders(query, param_names=param_names).query

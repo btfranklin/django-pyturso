@@ -25,6 +25,12 @@ repeat the completed write.
 
 `executemany()` consumes parameter iterators without retaining the complete batch.
 It accepts positional or named parameter rows. An empty iterator is a no-op.
+For Django placeholders, the backend checks each row before the driver uses it.
+Positional rows must match the `%s` placeholder count. Named rows must contain
+all names used by `%(name)s`; unused keys and explicit `None` values are valid.
+An invalid row raises an error. Earlier rows can already have run, so use
+`atomic()` when the complete batch must roll back on error. SQL that uses native
+Turso placeholders retains the driver's parameter rules.
 
 Enabling autocommit while work remains active raises
 `TransactionManagementError`; callers must choose commit or rollback. Closing

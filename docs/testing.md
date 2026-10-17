@@ -31,8 +31,13 @@ pdm run check-full
 
 This command checks documentation, lint, types, and the full pytest suite, including
 integration and stress tests. CI and tag verification use this full gate.
-CI also runs the full gate with current stable Django, `pyturso`, and
+CI also runs the full gate with current stable Django, `pyturso`, `sqlparse`, and
 `django-stubs` releases. This job updates only its temporary checkout's lockfile.
+
+Run `pdm run audit` for the network advisory check of locked runtime dependencies.
+CI runs this command separately from the offline aggregate checks. It fails for
+known vulnerabilities or an incomplete scan. See [Security](security.md#sql-and-dependencies)
+for the audit scope and release checks.
 
 Test and verification jobs use PDM's dependency cache. The cache key includes
 the operating system, CPU type, Python version, and hash of `pdm.lock`.

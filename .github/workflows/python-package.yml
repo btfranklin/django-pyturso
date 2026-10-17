@@ -26,6 +26,7 @@ jobs:
                   cache-dependency-path: pdm.lock
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
+            - run: pdm run audit
             - name: Install documentation checker
               run: python scripts/install_perfect_doc.py "${{ runner.temp }}/perfect-doc"
             - run: pdm run check-full
@@ -57,8 +58,9 @@ jobs:
                   cache-dependency-path: pdm.lock
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
-            - run: pdm update --stable --update-eager Django pyturso
+            - run: pdm update --stable --update-eager Django pyturso sqlparse
             - run: pdm update -G dev --stable --update-eager django-stubs
+            - run: pdm run audit
             - name: Install documentation checker
               run: python scripts/install_perfect_doc.py "${{ runner.temp }}/perfect-doc"
             - run: pdm run check-full

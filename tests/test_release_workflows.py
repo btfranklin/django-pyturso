@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 WORKFLOWS = Path(__file__).resolve().parents[1] / ".github" / "workflows"
@@ -83,3 +84,31 @@ def test_only_verified_archives_are_transferred_to_publication() -> None:
     assert upload["uses"].startswith("pypa/gh-action-pypi-publish@")
     assert "if" not in download and "if" not in upload
     assert all("continue-on-error" not in step for step in publish)
+
+
+@pytest.mark.parametrize(
+    ("filename", "job_name"),
+    [
+        ("python-package.yml", "quality"),
+        ("python-package.yml", "current-dependencies"),
+        ("verify-release.yml", "platform-verification"),
+    ],
+)
+def test_runtime_advisory_audit_is_required_before_verification(
+    filename: str, job_name: str
+) -> None:
+    job = workflow(filename)["jobs"][job_name]
+    assert "if" not in job
+    assert "continue-on-error" not in job
+    steps = job["steps"]
+    audits = [index for index, step in enumerate(steps) if step.get("run") == "pdm run audit"]
+    assert len(audits) == 1
+    audit = audits[0]
+    assert "if" not in steps[audit]
+    assert "continue-on-error" not in steps[audit]
+    commands = [step.get("run", "") for step in steps]
+    assert commands.index("pdm sync -G dev --clean") < audit
+    assert audit < commands.index("pdm run check-full")
+    assert all(index < audit for index, command in enumerate(commands) if command.startswith(
+        "pdm update "
+    ))

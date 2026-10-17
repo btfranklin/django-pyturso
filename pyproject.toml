@@ -13,7 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
-dependencies = ["Django>=6.1.2", "pyturso>=0.7.2"]
+dependencies = ["Django>=6.1.2", "pyturso>=0.7.2", "sqlparse>=0.6.0"]
 
 [dependency-groups]
 dev = [
@@ -28,6 +28,7 @@ dev = [
     "psutil>=7.2.2",
     "PyYAML>=6.0.3",
     "types-PyYAML>=6.0.12.20260906",
+    "pip-audit>=2.10.1",
 ]
 
 [build-system]
@@ -41,6 +42,7 @@ fallback_version = "0.0.0"
 [tool.pdm.scripts]
 lint = "ruff check ."
 docs = "perfect-doc --no-banner check --offline ."
+audit = "python scripts/audit_dependencies.py"
 typecheck = "mypy src tests scripts"
 test = "pytest"
 test-fast = "pytest --maxfail=1 -m 'not integration and not stress'"

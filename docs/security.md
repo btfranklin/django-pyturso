@@ -25,5 +25,19 @@ conversion preserves quoted identifiers, comments, and literal text so they
 cannot create or consume bindings.
 
 GitHub dependency review checks pull requests that change runtime dependencies,
-and CodeQL scans the Python and workflow source. Releases use PyPI Trusted
-Publishing; no PyPI token is stored in this repository.
+and CodeQL scans the Python and workflow source.
+The package requires `sqlparse>=0.6.0` to exclude releases with known SQL parser
+denial-of-service defects.
+
+Run `pdm run audit` to check the locked runtime dependencies against PyPI's
+advisory data. This command checks the lockfile, exports exact versions and
+artifact hashes through PDM, and runs `pip-audit` without dependency resolution
+or package installation. It excludes development tools and the local package.
+Platform markers select the runtime dependencies for the current platform.
+Known vulnerabilities, incomplete collection, and service errors fail the check.
+The command requires network access; the offline aggregate checks do not run it.
+
+CI runs this check on pull requests and pushes to `main`, for both locked and
+current runtime dependencies. Release verification also runs it on each
+supported platform before package publication can proceed.
+Releases use PyPI Trusted Publishing; no PyPI token is stored in this repository.

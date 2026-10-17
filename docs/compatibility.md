@@ -91,6 +91,15 @@ SQL keywords, such as `CONSTRAINT`, still retain their declared lengths.
 
 ## Schema alterations
 
+Foreign keys use the database deletion actions declared by `models.DB_CASCADE`,
+`models.DB_SET_NULL`, and `models.DB_SET_DEFAULT`. Model creation, field addition,
+and table remakes preserve these actions. Forward and reverse migrations apply
+changes to the action. `DB_SET_DEFAULT` requires a database default and a matching
+parent row when that default is not `NULL`.
+Ordinary `models.CASCADE` keeps Django's Python deletion policy. Its database
+foreign key uses `NO ACTION`.
+The schema deletion tests use local files in both WAL and MVCC mode.
+
 A column rename that also changes `db_index` remakes the table. This preserves
 stored rows and applies the requested index state.
 When a referenced unique column is renamed during a table remake, related tables

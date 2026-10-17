@@ -5,6 +5,13 @@ exactly `:memory:`. Default file test databases are siblings named
 `test_<filename>`; `TEST.NAME` overrides that path. `--keepdb` reuses a cleanly
 closed file database.
 
+Test database setup and teardown close the current physical connection before
+they switch databases. An open in-memory database does not retain its tables
+during test setup, even when the test database name is also `:memory:`. Teardown
+also closes in-memory test databases when `--keepdb` is set. A file-backed mirror
+closes its current connection before it selects the primary database file.
+These switches must occur outside an atomic block and on the connection's thread.
+
 Creating or destroying a file test database removes its database file, WAL
 file (`-wal`), and MVCC log file (`-log`). Other files are retained. `--keepdb`
 retains all database files for reuse.

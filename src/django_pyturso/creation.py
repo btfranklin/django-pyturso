@@ -2,10 +2,13 @@
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import NotSupportedError
 from django.db.backends.base.creation import BaseDatabaseCreation
+
+if TYPE_CHECKING:
+    from .base import DatabaseWrapper
 
 
 class DatabaseCreation(BaseDatabaseCreation):
@@ -29,6 +32,7 @@ class DatabaseCreation(BaseDatabaseCreation):
 
     def _create_test_db(self, verbosity: int, autoclobber: bool, keepdb: bool = False) -> str:
         test_database_name = self._get_test_db_name()
+        self._close_for_test_database_switch()
         if self.is_in_memory_db(test_database_name) or keepdb:
             return test_database_name
         path = Path(test_database_name)
@@ -53,6 +57,16 @@ class DatabaseCreation(BaseDatabaseCreation):
     def get_test_db_clone_settings(self, suffix: str) -> dict[str, Any]:
         raise NotSupportedError("django-pyturso doesn't support parallel test database cloning.")
 
+    def destroy_test_db(
+        self,
+        old_database_name: str | None = None,
+        verbosity: int = 1,
+        keepdb: bool = False,
+        suffix: str | None = None,
+    ) -> None:
+        self._close_for_test_database_switch()
+        super().destroy_test_db(old_database_name, verbosity, keepdb, suffix)
+
     def _destroy_test_db(self, test_database_name: str, verbosity: int) -> None:
         if test_database_name and not self.is_in_memory_db(test_database_name):
             self.connection.close()
@@ -69,7 +83,14 @@ class DatabaseCreation(BaseDatabaseCreation):
             raise NotSupportedError(
                 "django-pyturso test mirrors require a file-backed primary database."
             )
+        self._close_for_test_database_switch()
         super().set_as_test_mirror(primary_settings_dict)
+
+    def _close_for_test_database_switch(self) -> None:
+        connection = cast("DatabaseWrapper", self.connection)
+        connection.validate_thread_sharing()
+        connection.validate_no_atomic_block()
+        connection._rollback_and_force_close()
 
     def test_db_signature(self) -> tuple[Any, ...]:
         test_database_name = self._get_test_db_name()

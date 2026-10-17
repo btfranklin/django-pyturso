@@ -1,11 +1,13 @@
 """Test database lifecycle contract tests."""
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import turso
-from django.db import NotSupportedError
+from django.db import DatabaseError, NotSupportedError
+from django.db.transaction import TransactionManagementError
 
 from django_pyturso.base import DatabaseWrapper
 from django_pyturso.creation import DatabaseCreation
@@ -167,6 +169,71 @@ def test_creation_clone_destroy_and_mirror_branches(tmp_path: Path) -> None:
     mirror = _creation(name=tmp_path / "mirror.db")
     mirror.set_as_test_mirror({"NAME": source})
     assert mirror.connection.settings_dict["NAME"] == source
+
+
+@pytest.mark.parametrize("source_mode", ["memory", "file"])
+def test_connected_mirror_switches_to_the_primary_file(
+    tmp_path: Path, django_db_blocker: Any, source_mode: str
+) -> None:
+    primary_name = tmp_path / "primary.db"
+    primary = turso.connect(str(primary_name), isolation_level=None)
+    try:
+        primary.execute("CREATE TABLE primary_rows(value INTEGER)")
+        primary.execute("INSERT INTO primary_rows VALUES (7)")
+    finally:
+        primary.close()
+    source_name = ":memory:" if source_mode == "memory" else tmp_path / "source.db"
+    creation = _creation(name=source_name)
+    wrapper = cast(DatabaseWrapper, creation.connection)
+    with django_db_blocker.unblock():
+        try:
+            with wrapper.cursor() as cursor:
+                cursor.execute("CREATE TABLE source_rows(value INTEGER)")
+                cursor.execute("BEGIN")
+                cursor.execute("INSERT INTO source_rows VALUES (1)")
+            creation.set_as_test_mirror({"NAME": primary_name})
+            assert wrapper.connection is None
+            with wrapper.cursor() as cursor:
+                cursor.execute("SELECT value FROM primary_rows")
+                assert cursor.fetchall() == [(7,)]
+            assert "source_rows" not in wrapper.introspection.table_names()
+        finally:
+            wrapper._rollback_and_force_close()
+
+
+@pytest.mark.parametrize("operation", ["create", "destroy", "mirror"])
+@pytest.mark.parametrize("invalid_context", ["atomic", "thread"])
+def test_test_database_switch_rejects_invalid_connection_context(
+    tmp_path: Path, django_db_blocker: Any, operation: str, invalid_context: str
+) -> None:
+    creation = _creation()
+    wrapper = cast(DatabaseWrapper, creation.connection)
+
+    def switch() -> None:
+        if operation == "create":
+            creation._create_test_db(verbosity=0, autoclobber=True)
+        elif operation == "destroy":
+            creation.destroy_test_db(str(tmp_path / "source.db"), verbosity=0)
+        else:
+            creation.set_as_test_mirror({"NAME": tmp_path / "primary.db"})
+
+    with django_db_blocker.unblock():
+        wrapper.ensure_connection()
+        original = wrapper.connection
+        try:
+            if invalid_context == "atomic":
+                wrapper.in_atomic_block = True
+                with pytest.raises(TransactionManagementError, match="atomic"):
+                    switch()
+            else:
+                with ThreadPoolExecutor(max_workers=1) as worker:
+                    with pytest.raises(DatabaseError, match="same thread"):
+                        worker.submit(switch).result()
+            assert wrapper.connection is original
+            assert wrapper.settings_dict["NAME"] == ":memory:"
+        finally:
+            wrapper.in_atomic_block = False
+            wrapper._rollback_and_force_close()
 
 
 def test_remove_database_artifacts_skips_absent_sidecars(tmp_path: Path) -> None:

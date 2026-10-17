@@ -586,17 +586,43 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                         needs_collation = True
         return collations
 
-    @classmethod
-    def _get_column_sizes(cls, table_sql: str | None) -> dict[str, int]:
+    @staticmethod
+    def _get_column_sizes(table_sql: str | None) -> dict[str, int]:
         if not table_sql:
             return {}
+        statements = sqlparse.parse(table_sql)
+        if not statements:
+            return {}
+        tokens = (
+            token
+            for token in statements[0].flatten()  # type: ignore[no-untyped-call]
+            if not token.is_whitespace and token.ttype not in sqlparse.tokens.Comment
+        )
+        for token in tokens:
+            if token.match(sqlparse.tokens.Punctuation, "("):
+                break
         sizes: dict[str, int] = {}
-        size_pattern = _lazy_re_compile(r"\b(?:var)?char\s*\(\s*(\d+)\s*\)", flags=2)
-        for definition in cls._split_table_definitions(table_sql):
-            column_name = cls._leading_identifier(definition)
-            match = size_pattern.search(definition)
-            if column_name is not None and match:
-                sizes[column_name] = int(match[1])
+        definition: list[Any] = []
+        depth = 0
+        for token in tokens:
+            if depth == 0 and token.match(sqlparse.tokens.Punctuation, (",", ")")):
+                # Only the declared type after the column name can set its size.
+                declared_type = (
+                    _unquote_identifier(definition[1].value) if len(definition) > 1 else ""
+                )
+                if len(definition) > 2 and definition[2].match(sqlparse.tokens.Punctuation, "("):
+                    declared_type += "".join(part.value for part in definition[2:5])
+                if (size := get_field_size(declared_type)) is not None:
+                    sizes[_unquote_identifier(definition[0].value)] = size
+                definition = []
+                if token.value == ")":
+                    break
+                continue
+            definition.append(token)
+            if token.match(sqlparse.tokens.Punctuation, "("):
+                depth += 1
+            elif token.match(sqlparse.tokens.Punctuation, ")"):
+                depth -= 1
         return sizes
 
     @classmethod
@@ -632,67 +658,3 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             if column := columns_by_name.get(_identifier_key(name)):
                 result.add(column)
         return result
-
-    @staticmethod
-    def _leading_identifier(definition: str) -> str | None:
-        parsed = sqlparse.parse(definition)
-        if not parsed:
-            return None
-        token = next(
-            (
-                token
-                for token in parsed[0].flatten()  # type: ignore[no-untyped-call]
-                if not token.is_whitespace
-            ),
-            None,
-        )
-        if token is None:
-            return None
-        return _unquote_identifier(str(token.value))
-
-    @staticmethod
-    def _split_table_definitions(sql: str) -> list[str]:
-        start = sql.find("(")
-        if start < 0:
-            return []
-        definitions: list[str] = []
-        current: list[str] = []
-        depth = 0
-        quote: str | None = None
-        index = start + 1
-        while index < len(sql):
-            character = sql[index]
-            if quote is not None:
-                current.append(character)
-                if quote == "]" and character == "]":
-                    quote = None
-                elif quote != "]" and character == quote:
-                    if index + 1 < len(sql) and sql[index + 1] == quote:
-                        current.append(sql[index + 1])
-                        index += 1
-                    else:
-                        quote = None
-            elif character in {'"', "'", "`"}:
-                quote = character
-                current.append(character)
-            elif character == "[":
-                quote = "]"
-                current.append(character)
-            elif character == "(":
-                depth += 1
-                current.append(character)
-            elif character == ")":
-                if depth == 0:
-                    if definition := "".join(current).strip():
-                        definitions.append(definition)
-                    break
-                depth -= 1
-                current.append(character)
-            elif character == "," and depth == 0:
-                if definition := "".join(current).strip():
-                    definitions.append(definition)
-                current = []
-            else:
-                current.append(character)
-            index += 1
-        return definitions

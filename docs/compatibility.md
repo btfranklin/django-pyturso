@@ -75,6 +75,9 @@ syntax uses from their position in the expression.
 Column collation lookup ignores `COLLATE` text in default values, comments, and
 nested expressions such as `CHECK` conditions. `inspectdb` reports only the
 column's declared collation and preserves quoted column and collation names.
+Character lengths come only from the declared column type. Text in names,
+defaults, comments, and checks cannot set a length. Quoted table names that
+contain parentheses or commas do not change how column definitions are read.
 
 ## Schema alterations
 

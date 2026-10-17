@@ -138,6 +138,64 @@ def test_table_list_and_inspectdb_hide_turso_autoincrement_metadata(
 
 
 @pytest.mark.core
+@pytest.mark.parametrize("table_name", ["intro_sizes", "size(table", 'size")table', "size,table"])
+def test_declared_character_lengths_reach_introspection_and_inspectdb(
+    django_db_blocker: Any, table_name: str
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        table_sql = connection.ops.quote_name(table_name)
+        cursor.execute(
+            f"CREATE TABLE {table_sql} ("
+            "id INTEGER PRIMARY KEY, "
+            "value VARCHAR(20), "
+            '"varchar(999)" VARCHAR /* char(500) */ (30), '
+            "unlimited VARCHAR DEFAULT 'varchar(200)', "
+            "checked VARCHAR CHECK(checked <> 'char(400)'), "
+            "nested VARCHAR DEFAULT ('char(600)'), "
+            "commented VARCHAR /* char(300) ( , ) */, "
+            "escaped VARCHAR DEFAULT 'can''t char(700)', "
+            "simple CHAR(17), "
+            'quoted_type "VARCHAR(18)", '
+            "`backtick` CHAR(21), [bracket] CHAR(22), 'single quote' CHAR(23), "
+            '"escaped""column" CHAR(24))'
+        )
+        try:
+            sizes = {
+                field.name: field.display_size
+                for field in connection.introspection.get_table_description(cursor, table_name)
+            }
+            assert sizes == {
+                "id": None,
+                "value": 20,
+                "varchar(999)": 30,
+                "unlimited": None,
+                "checked": None,
+                "nested": None,
+                "commented": None,
+                "escaped": None,
+                "simple": 17,
+                "quoted_type": 18,
+                "backtick": 21,
+                "bracket": 22,
+                "single quote": 23,
+                'escaped"column': 24,
+            }
+            output = StringIO()
+            call_command("inspectdb", table_name, stdout=output)
+            model_source = output.getvalue()
+            assert "value = models.CharField(max_length=20," in model_source
+            assert "db_column='varchar(999)', max_length=30," in model_source
+            assert "simple = models.CharField(max_length=17," in model_source
+            for name in ("unlimited", "checked", "nested", "commented", "escaped"):
+                field_line = next(
+                    line for line in model_source.splitlines() if line.startswith(f"    {name} = ")
+                )
+                assert "max_length=" not in field_line
+        finally:
+            cursor.execute(f"DROP TABLE {table_sql}")
+
+
+@pytest.mark.core
 @pytest.mark.parametrize(
     ("column_sql", "column_name", "collation_sql"),
     [
@@ -360,13 +418,6 @@ def test_introspection_fallback_and_empty_helper_branches() -> None:
     assert DatabaseIntrospection._get_column_collations(None) == {}
     assert DatabaseIntrospection._get_column_sizes(None) == {}
     assert DatabaseIntrospection._get_json_columns(None, {"value"}) == set()
-    assert DatabaseIntrospection._leading_identifier("") is None
-    assert DatabaseIntrospection._leading_identifier("   ") is None
-    assert DatabaseIntrospection._leading_identifier('"a""b" text') == 'a"b'
-    assert DatabaseIntrospection._leading_identifier("`backtick` text") == "backtick"
-    assert DatabaseIntrospection._leading_identifier("[bracket] text") == "bracket"
-    assert DatabaseIntrospection._leading_identifier("plain text") == "plain"
-    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE sample") == []
 
 
 def test_json_column_detection_is_exact_and_conservative(
@@ -398,29 +449,6 @@ def test_json_column_detection_is_exact_and_conservative(
 
     monkeypatch.setattr("django_pyturso.introspection.sqlparse.parse", lambda sql: [])
     assert DatabaseIntrospection._get_json_columns("malformed", {"value"}) == set()
-
-
-def test_introspection_definition_splitter_quotes_nesting_and_malformed_sql() -> None:
-    sql = """
-        CREATE TABLE sample (
-            "a""b" text DEFAULT 'x,y',
-            `backtick` text,
-            [bracket] text,
-            nested text CHECK (nested IN ('a,b', 'c')),
-            plain text
-        )
-    """
-    definitions = DatabaseIntrospection._split_table_definitions(sql)
-    assert len(definitions) == 5
-    assert definitions[0] == '"a""b" text DEFAULT \'x,y\''
-    assert definitions[2] == "[bracket] text"
-    assert "('a,b', 'c')" in definitions[3]
-    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE x (a int,, b int)") == [
-        "a int",
-        "b int",
-    ]
-    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE x (a int,)") == ["a int"]
-    assert DatabaseIntrospection._split_table_definitions("CREATE TABLE x (a int") == []
 
 
 def test_introspection_constraint_parser_quoted_and_empty_branches() -> None:
@@ -472,16 +500,6 @@ def test_introspection_constraint_parser_quoted_and_empty_branches() -> None:
         )
         == {}
     )
-
-
-def test_leading_identifier_with_only_whitespace_tokens(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    statement = SimpleNamespace(flatten=lambda: [SimpleNamespace(is_whitespace=True)])
-    monkeypatch.setattr(
-        "django_pyturso.introspection.sqlparse.parse", lambda definition: [statement]
-    )
-    assert DatabaseIntrospection._leading_identifier("synthetic") is None
 
 
 @pytest.mark.core

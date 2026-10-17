@@ -39,7 +39,7 @@ def fetch(cursor: Any, method: str) -> Any:
 @pytest.mark.parametrize("options", MODES, ids=["wal", "mvcc"])
 @pytest.mark.parametrize("boundary", ["commit", "rollback"])
 @pytest.mark.parametrize("method", FETCH_METHODS)
-def test_returning_fetch_rearms_manual_transaction(
+def test_returning_fetch_preserves_manual_transaction_result(
     tmp_path: Path, options: dict[str, str], boundary: str, method: str
 ) -> None:
     with registered_wrapper(NAME=tmp_path / "manual.db", OPTIONS=options) as wrapper:
@@ -56,7 +56,9 @@ def test_returning_fetch_rearms_manual_transaction(
 
         wrapper.rollback()
         wrapper.set_autocommit(True)
-        assert wrapper.cursor().execute("SELECT * FROM t").fetchall() == []
+        assert wrapper.cursor().execute("SELECT * FROM t").fetchall() == (
+            [(1,)] if boundary == "commit" else []
+        )
         assert transaction_active
 
 
@@ -199,7 +201,7 @@ def test_nested_atomic_conflict_does_not_restart_engine_during_cleanup(
 
 
 @pytest.mark.parametrize("method", FETCH_METHODS)
-def test_conflict_during_fetch_marks_atomic_transaction_for_rollback(
+def test_returning_execute_conflict_marks_atomic_transaction_for_rollback(
     tmp_path: Path, method: str
 ) -> None:
     path = tmp_path / "fetch_conflict.db"
@@ -213,12 +215,10 @@ def test_conflict_during_fetch_marks_atomic_transaction_for_rollback(
             b.cursor().execute("SELECT * FROM t").fetchall()
             transaction.on_commit(lambda: callbacks.append("lost"), using=b.alias)
             with b.cursor() as pending:
-                pending.execute("UPDATE t SET n=2 WHERE id=1 RETURNING id")
                 with transaction.atomic(using=a.alias):
                     a.cursor().execute("UPDATE t SET n=1 WHERE id=1")
                 with pytest.raises(DatabaseError, match="conflict"):
-                    with b.wrap_database_errors:
-                        fetch(pending, method)
+                    pending.execute("UPDATE t SET n=2 WHERE id=1 RETURNING id")
                 assert not b.connection.in_transaction
                 assert b.needs_rollback
                 with pytest.raises(TransactionManagementError):
@@ -230,7 +230,7 @@ def test_conflict_during_fetch_marks_atomic_transaction_for_rollback(
 @pytest.mark.parametrize("options", MODES, ids=["wal", "mvcc"])
 @pytest.mark.parametrize("boundary", ["commit", "rollback"])
 @pytest.mark.parametrize("savepoint", [True, False])
-def test_pending_fetch_starts_manual_atomic_after_transaction_boundary(
+def test_returning_fetch_cannot_move_write_to_later_manual_atomic(
     tmp_path: Path, options: dict[str, str], boundary: str, savepoint: bool
 ) -> None:
     with registered_wrapper(NAME=tmp_path / "manual_atomic.db", OPTIONS=options) as wrapper:
@@ -246,7 +246,9 @@ def test_pending_fetch_starts_manual_atomic_after_transaction_boundary(
                     raise ValueError("abort manual atomic")
         wrapper.rollback()
         wrapper.set_autocommit(True)
-        assert wrapper.cursor().execute("SELECT * FROM t").fetchall() == []
+        assert wrapper.cursor().execute("SELECT * FROM t").fetchall() == (
+            [(1,)] if boundary == "commit" else []
+        )
 
 
 @pytest.mark.parametrize("options", MODES, ids=["wal", "mvcc"])

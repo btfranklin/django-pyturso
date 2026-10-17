@@ -5,11 +5,13 @@ from __future__ import annotations
 import os
 import re
 import time
+from collections import deque
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from itertools import chain
 from typing import Any, cast
 
+import sqlparse
 import turso as Database
 from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError, IntegrityError, NotSupportedError, OperationalError
@@ -590,10 +592,35 @@ def _convert_placeholders(query: str, *, param_names: list[str] | None) -> str:
     return "".join(converted)
 
 
+def _is_write_statement(query: str) -> bool:
+    """Find the first statement's verb, including after common table expressions."""
+    depth = 0
+    in_cte = False
+    for token_type, value in cast(Any, sqlparse.lexer.tokenize)(query):
+        if token_type in sqlparse.tokens.Whitespace or token_type in sqlparse.tokens.Comment:
+            continue
+        if depth == 0:
+            if value == ";":
+                continue
+            if token_type in sqlparse.tokens.Keyword.DML:
+                return value.upper() in {"INSERT", "UPDATE", "DELETE", "REPLACE"}
+            if not in_cte:
+                if value.upper() != "WITH":
+                    return False
+                in_cte = True
+        if token_type in sqlparse.tokens.Punctuation:
+            if value == "(":
+                depth += 1
+            elif value == ")":
+                depth -= 1
+    return False
+
+
 class TursoCursorWrapper(Database.Cursor):
     """Convert Django placeholders and guard statements that execute during fetch."""
 
     _django_wrapper: DatabaseWrapper
+    _returning_rows: deque[Any] | None = None
 
     @contextmanager
     def _django_transaction(self) -> Iterator[None]:
@@ -611,10 +638,17 @@ class TursoCursorWrapper(Database.Cursor):
 
     def execute(self, query: str, params: Any = None) -> Any:
         with self._django_transaction():
+            self._returning_rows = None
             if params is None:
-                return super().execute(query)
-            names = list(params) if isinstance(params, Mapping) else None
-            return super().execute(self.convert_query(query, param_names=names), params)
+                result = super().execute(query)
+            else:
+                names = list(params) if isinstance(params, Mapping) else None
+                result = super().execute(self.convert_query(query, param_names=names), params)
+            if self.description is not None and _is_write_statement(query):
+                # Complete the write now. Later fetches must not write after a
+                # commit or rollback. Ordinary SELECT results remain streamed.
+                self._returning_rows = deque(super().fetchall())
+            return result
 
     def executemany(self, query: str, param_list: Iterable[Any]) -> Any:
         with self._django_transaction():
@@ -623,6 +657,7 @@ class TursoCursorWrapper(Database.Cursor):
                 first = next(parameters)
             except StopIteration:
                 return self
+            self._returning_rows = None
             names = list(first) if isinstance(first, Mapping) else None
             return super().executemany(
                 self.convert_query(query, param_names=names), chain((first,), parameters)
@@ -630,15 +665,33 @@ class TursoCursorWrapper(Database.Cursor):
 
     def fetchone(self) -> Any:
         with self._django_transaction():
+            if self._returning_rows is not None:
+                return self._returning_rows.popleft() if self._returning_rows else None
             return super().fetchone()
 
     def fetchmany(self, size: int | None = None) -> list[Any]:
         with self._django_transaction():
+            if self._returning_rows is not None:
+                size = self.arraysize if size is None else size
+                if size < 0:
+                    raise ValueError("size must be non-negative")
+                return [
+                    self._returning_rows.popleft()
+                    for _ in range(min(size, len(self._returning_rows)))
+                ]
             return super().fetchmany(size)
 
     def fetchall(self) -> list[Any]:
         with self._django_transaction():
+            if self._returning_rows is not None:
+                rows = list(self._returning_rows)
+                self._returning_rows.clear()
+                return rows
             return super().fetchall()
+
+    def close(self) -> None:
+        self._returning_rows = None
+        super().close()
 
     @staticmethod
     def convert_query(query: str, *, param_names: list[str] | None = None) -> str:

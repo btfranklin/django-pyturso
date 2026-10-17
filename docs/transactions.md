@@ -7,12 +7,19 @@ After a manual commit or rollback, the next statement or cursor fetch lazily
 starts the next manual transaction. Ordinary and nested `atomic()` blocks use
 explicit outer transactions and savepoints.
 
-Turso can delay a statement with result columns until the cursor fetches a row.
-This includes writes with `RETURNING`. The backend checks Django's transaction
-state before `fetchone()`, `fetchmany()`, `fetchall()`, and each iteration step.
-A pending write fetched after a manual commit or rollback belongs to the next
-manual transaction and can be rolled back. Fetching within a failed atomic
-transaction raises `TransactionManagementError`, including for read cursors.
+Turso can delay statements with result columns until fetch. The backend completes
+`INSERT`, `UPDATE`, `DELETE`, and `REPLACE` statements with `RETURNING` during
+`execute()` and stores their result rows in memory. This includes statements
+with a common table expression. Commit callbacks therefore see completed writes,
+and a later fetch cannot restore a write after rollback. Large `RETURNING`
+results require memory for all returned rows; ordinary `SELECT` results remain
+streamed.
+
+The backend checks Django's transaction state before each fetch and iteration
+step. Fetching within a failed atomic transaction raises
+`TransactionManagementError`, including for stored result rows. After a manual
+commit or rollback, a fetch starts the next manual transaction but does not
+repeat the completed write.
 
 `executemany()` consumes parameter iterators without retaining the complete batch.
 It accepts positional or named parameter rows. An empty iterator is a no-op.

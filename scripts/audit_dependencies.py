@@ -106,7 +106,8 @@ def _validate_response(data: Any, name: str, version: Version) -> list[str]:
         elif (
             not isinstance(withdrawn, str)
             or re.fullmatch(
-                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?"
+                r"(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
                 withdrawn,
             )
             is None

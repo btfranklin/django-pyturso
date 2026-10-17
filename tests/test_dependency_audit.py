@@ -174,9 +174,40 @@ def test_real_audit_rejects_active_advisories_even_without_a_fix(
     assert "No known vulnerabilities found" not in output
 
 
-def test_real_audit_accepts_valid_withdrawn_advisories(serve: Callable[..., list[str]]) -> None:
-    serve(lambda data: {**data, "vulnerabilities": [_advisory(withdrawn="2026-10-17T00:00:00Z")]})
+@pytest.mark.parametrize("offset", ["+00:60", "-00:99", "+01:99", "-01:60", "+24:00", "-24:00"])
+def test_real_audit_rejects_invalid_withdrawal_offsets(
+    serve: Callable[..., list[str]], offset: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = serve(
+        lambda data: (
+            {**data, "vulnerabilities": [_advisory(withdrawn=f"2026-10-17T00:00:00{offset}")]}
+            if data["info"]["name"] == "sqlparse"
+            else data
+        )
+    )
+    with pytest.raises(audit_dependencies.AuditError, match="invalid withdrawal timestamp"):
+        audit_dependencies.main()
+    assert any("/sqlparse/" in url for url in calls)
+    assert "No known vulnerabilities found" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "withdrawn",
+    [
+        "2026-10-17T00:00:00Z",
+        "2026-10-17T00:00:00+00:00",
+        "2026-10-17T00:00:00-00:00",
+        "2026-10-17T00:00:00+23:59",
+        "2026-10-17T00:00:00-23:59",
+        "2026-10-17T00:00:00.123456+01:59",
+    ],
+)
+def test_real_audit_accepts_valid_withdrawn_advisories(
+    serve: Callable[..., list[str]], withdrawn: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    serve(lambda data: {**data, "vulnerabilities": [_advisory(withdrawn=withdrawn)]})
     audit_dependencies.main()
+    assert "No known vulnerabilities found" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(

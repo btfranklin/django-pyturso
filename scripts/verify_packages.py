@@ -3,21 +3,35 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 import zipfile
+from collections.abc import Iterable
 from email.message import Message
 from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 NOTICE = "THIRD_PARTY_NOTICES.md"
 FORBIDDEN_ARCHIVE_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+
+
+def _project_metadata() -> dict[str, Any]:
+    with (ROOT / "pyproject.toml").open("rb") as manifest:
+        project: dict[str, Any] = tomllib.load(manifest)["project"]
+    return project
+
+
+def _normalized_requirements(requirements: Iterable[str]) -> list[str]:
+    return sorted(value.replace(" ", "") for value in requirements)
 
 
 def _artifacts() -> list[Path]:
@@ -73,26 +87,21 @@ def _verify_archive(artifact: Path) -> Message:
             raise RuntimeError(f"{artifact.name} contains cache path {name}")
         if path.suffix in {".pyc", ".db", ".sqlite", ".sqlite3"}:
             raise RuntimeError(f"{artifact.name} contains build debris {name}")
+    metadata = _read_metadata(artifact)
     if artifact.suffix == ".whl":
         if any(Path(name).parts[0] == "tests" for name in names):
             raise RuntimeError(f"{artifact.name} unexpectedly contains tests")
-        metadata = _read_metadata(artifact)
-        if metadata["Name"] != "django-pyturso":
+        project = _project_metadata()
+        if metadata["Name"] != project["name"]:
             raise RuntimeError(f"{artifact.name} has incorrect project metadata")
-        if metadata["Requires-Python"].strip() != ">=3.14":
+        if metadata.get("Requires-Python", "").replace(" ", "") != project[
+            "requires-python"
+        ].replace(" ", ""):
             raise RuntimeError(f"{artifact.name} has incorrect Requires-Python")
-        requirements = [value.replace(" ", "") for value in metadata.get_all("Requires-Dist", [])]
-        if not any(
-            value.startswith("Django") and value == "Django>=6.0.7"
-            for value in requirements
-        ):
-            raise RuntimeError(f"{artifact.name} has incorrect Django requirement")
-        if not any(
-            value.startswith("pyturso") and value == "pyturso>=0.7.2"
-            for value in requirements
-        ):
-            raise RuntimeError(f"{artifact.name} has incorrect pyturso requirement")
-    return _read_metadata(artifact)
+        requirements = _normalized_requirements(metadata.get_all("Requires-Dist", []))
+        if requirements != _normalized_requirements(project["dependencies"]):
+            raise RuntimeError(f"{artifact.name} has incorrect Requires-Dist")
+    return metadata
 
 
 def _verify_metadata_consistency(
@@ -101,12 +110,8 @@ def _verify_metadata_consistency(
     for field in ("Name", "Version", "Requires-Python", "License-Expression"):
         if wheel[field] != sdist[field]:
             raise RuntimeError(f"wheel and sdist disagree on {field}")
-    wheel_requirements = sorted(
-        value.replace(" ", "") for value in wheel.get_all("Requires-Dist", [])
-    )
-    sdist_requirements = sorted(
-        value.replace(" ", "") for value in sdist.get_all("Requires-Dist", [])
-    )
+    wheel_requirements = _normalized_requirements(wheel.get_all("Requires-Dist", []))
+    sdist_requirements = _normalized_requirements(sdist.get_all("Requires-Dist", []))
     if wheel_requirements != sdist_requirements:
         raise RuntimeError("wheel and sdist disagree on Requires-Dist")
     if expected_version is not None and wheel["Version"] != expected_version:
@@ -117,17 +122,19 @@ def _verify_metadata_consistency(
 
 
 def _clean_install(artifact: Path) -> None:
+    metadata = _project_metadata()
     with tempfile.TemporaryDirectory(prefix="django-pyturso-package-") as directory:
         project = Path(directory)
         artifact_uri = artifact.resolve().as_uri()
+        artifact_requirement = f"{metadata['name']} @ {artifact_uri}"
         (project / "pyproject.toml").write_text(
             "\n".join(
                 [
                     "[project]",
                     'name = "django-pyturso-smoke"',
                     'version = "0.0.0"',
-                    'requires-python = ">=3.14"',
-                    f'dependencies = ["django-pyturso @ {artifact_uri}"]',
+                    f"requires-python = {json.dumps(metadata['requires-python'])}",
+                    f"dependencies = [{json.dumps(artifact_requirement)}]",
                     "",
                 ]
             )

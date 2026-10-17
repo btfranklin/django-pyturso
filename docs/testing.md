@@ -82,6 +82,9 @@ execution.
 checks their metadata and clean-installs each artifact into a temporary Django
 project using both an in-memory and a file database. The installed-package
 example in `scripts/package_smoke.py` is copied into each temporary project.
+The archive checks read the project name, Python constraint, and complete
+dependency list from `pyproject.toml`. The install project uses the same declared
+name and Python constraint.
 
 ## MVCC coverage
 

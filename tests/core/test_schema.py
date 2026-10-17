@@ -73,7 +73,7 @@ def test_schema_editor_preserves_an_originally_disabled_state(django_db_blocker:
 def test_schema_editor_rejects_entry_inside_atomic(django_db_blocker: Any) -> None:
     with django_db_blocker.unblock():
         with transaction.atomic():
-            with pytest.raises(NotSupportedError, match="outside transaction.atomic"):
+            with pytest.raises(NotSupportedError, match="schema editing must begin outside"):
                 with connection.schema_editor():
                     pytest.fail("schema editor entered with foreign keys still enabled")
         assert _foreign_key_state() == 1

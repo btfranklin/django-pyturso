@@ -81,6 +81,61 @@ def test_table_description_type_affinity_and_composite_primary_key(
 
 
 @pytest.mark.core
+@pytest.mark.parametrize(
+    ("column_sql", "column_name", "collation_sql"),
+    [
+        ('"a""b"', 'a"b', '"NOCASE"'),
+        ("`a``b`", "a`b", "`NOCASE`"),
+        ("[quoted column]", "quoted column", "[NOCASE]"),
+        ("'quoted column'", "quoted column", "'NOCASE'"),
+        ("plain", "plain", "NOCASE"),
+    ],
+)
+def test_only_column_collations_reach_introspection_and_inspectdb(
+    django_db_blocker: Any, column_sql: str, column_name: str, collation_sql: str
+) -> None:
+    with django_db_blocker.unblock(), connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE TABLE intro_column_collations ("
+            "id INTEGER PRIMARY KEY, "
+            "literal TEXT DEFAULT 'COLLATE NOCASE', "
+            "escaped TEXT DEFAULT 'can''t COLLATE RTRIM', "
+            "commented TEXT /* COLLATE RTRIM ( , ) */, "
+            "simple_comment TEXT /* COLLATE RTRIM */, "
+            "line_comment TEXT -- COLLATE RTRIM\n, "
+            "checked TEXT CHECK(checked COLLATE NOCASE <> ''), "
+            "nested_default TEXT DEFAULT ('COLLATE RTRIM' COLLATE RTRIM), "
+            f"{column_sql} TEXT DEFAULT 'COLLATE RTRIM' COLLATE /* actual */ {collation_sql}, "
+            "after_check TEXT CHECK(after_check COLLATE RTRIM <> '') COLLATE NOCASE)"
+        )
+        try:
+            collations = {
+                field.name: field.collation
+                for field in connection.introspection.get_table_description(
+                    cursor, "intro_column_collations"
+                )
+            }
+            assert collations == {
+                "id": None,
+                "literal": None,
+                "escaped": None,
+                "commented": None,
+                "simple_comment": None,
+                "line_comment": None,
+                "checked": None,
+                "nested_default": None,
+                column_name: "NOCASE",
+                "after_check": "NOCASE",
+            }
+            output = StringIO()
+            call_command("inspectdb", "intro_column_collations", stdout=output)
+            assert output.getvalue().count("db_collation='NOCASE'") == 2
+            assert output.getvalue().count("db_collation=") == 2
+        finally:
+            cursor.execute("DROP TABLE intro_column_collations")
+
+
+@pytest.mark.core
 def test_relations_sequences_and_index_constraints(django_db_blocker: Any) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(

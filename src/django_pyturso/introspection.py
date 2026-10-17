@@ -528,33 +528,60 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 break
         return constraints
 
-    @classmethod
-    def _get_column_collations(cls, table_sql: str | None) -> dict[str, str | None]:
+    @staticmethod
+    def _get_column_collations(table_sql: str | None) -> dict[str, str | None]:
         if not table_sql:
             return {}
+        statements = sqlparse.parse(table_sql)
+        if not statements:
+            return {}
         collations: dict[str, str | None] = {}
-        for definition in cls._split_table_definitions(table_sql):
-            column_name = cls._leading_identifier(definition)
-            if column_name is None or column_name.upper() in {
-                "CHECK",
-                "CONSTRAINT",
-                "FOREIGN",
-                "PRIMARY",
-                "UNIQUE",
-            }:
-                continue
-            match = _lazy_re_compile(
-                r"\bCOLLATE\s+(?:\"((?:\"\"|[^\"])*)\"|`([^`]*)`|\[([^]]*)\]|([^\s,)]+))",
-                flags=2,
-            ).search(definition)
-            collations[column_name] = (
-                next(
-                    (value.replace('""', '"') for value in match.groups() if value is not None),
-                    None,
-                )
-                if match
-                else None
-            )
+        tokens = (
+            token
+            for token in statements[0].flatten()  # type: ignore[no-untyped-call]
+            if not token.is_whitespace and token.ttype not in sqlparse.tokens.Comment
+        )
+        for token in tokens:
+            if token.match(sqlparse.tokens.Punctuation, "("):
+                break
+        depth = 0
+        definition_start = True
+        column_name = None
+        needs_collation = False
+        for token in tokens:
+            if token.match(sqlparse.tokens.Punctuation, "("):
+                depth += 1
+            elif token.match(sqlparse.tokens.Punctuation, ")"):
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and token.match(sqlparse.tokens.Punctuation, ","):
+                definition_start = True
+                column_name = None
+                needs_collation = False
+            elif depth == 0:
+                if definition_start:
+                    definition_start = False
+                    if not token.match(
+                        sqlparse.tokens.Keyword,
+                        (
+                            "CHECK",
+                            "CONSTRAINT",
+                            "FOREIGN",
+                            "FOREIGN KEY",
+                            "PRIMARY",
+                            "PRIMARY KEY",
+                            "UNIQUE",
+                        ),
+                    ):
+                        column_name = _unquote_identifier(token.value)
+                        collations[column_name] = None
+                elif column_name is not None:
+                    if needs_collation:
+                        collations[column_name] = _unquote_identifier(token.value)
+                        needs_collation = False
+                    elif token.match(sqlparse.tokens.Keyword, "COLLATE"):
+                        needs_collation = True
         return collations
 
     @classmethod

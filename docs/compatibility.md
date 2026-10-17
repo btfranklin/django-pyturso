@@ -68,6 +68,9 @@ SQL literals such as `NULL`, `TRUE`, and `CURRENT_DATE`, and syntax words such
 as `AND` and `CASE`, do not refer to columns. Words such as `END`, `LIKE`, and
 `GLOB` can also be column names. Introspection distinguishes their column and
 syntax uses from their position in the expression.
+Column collation lookup ignores `COLLATE` text in default values, comments, and
+nested expressions such as `CHECK` conditions. `inspectdb` reports only the
+column's declared collation and preserves quoted column and collation names.
 
 ## Schema alterations
 

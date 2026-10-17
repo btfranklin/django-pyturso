@@ -25,6 +25,9 @@ package.
 
 ## Quickstart
 
+Install [Perfect Doc](https://github.com/btfranklin/perfect-doc#build-and-install)
+and put it on `PATH` before running the repository checks.
+
 ```bash
 pdm install --group dev
 pdm run check

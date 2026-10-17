@@ -26,6 +26,8 @@ jobs:
                   cache-dependency-path: pdm.lock
             - run: pdm lock --check
             - run: pdm sync -G dev --clean
+            - name: Install documentation checker
+              run: python scripts/install_perfect_doc.py "${{ runner.temp }}/perfect-doc"
             - run: pdm run check-full
             - name: Test Django regressions in a file
               env:
@@ -57,6 +59,8 @@ jobs:
             - run: pdm sync -G dev --clean
             - run: pdm update --stable --update-eager Django pyturso
             - run: pdm update -G dev --stable --update-eager django-stubs
+            - name: Install documentation checker
+              run: python scripts/install_perfect_doc.py "${{ runner.temp }}/perfect-doc"
             - run: pdm run check-full
             - name: Test Django regressions in a file
               env:

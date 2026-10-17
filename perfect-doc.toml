@@ -1,0 +1,20 @@
+# Check repository Markdown with GitHub link and fragment rules.
+include = ["*.md", "docs/**/*.md", ".github/*.md"]
+required_paths = ["README.md", "docs/index.md", "docs/architecture.md", "docs/design/backend-contract.md"]
+
+[markdown]
+dialect = "gfm"
+anchors = "github"
+closed_fences = true
+table_columns = true
+undefined_references = true
+
+[links]
+allow_outside_root = false
+strict_case = true
+
+[routes]
+enabled = false
+
+[network]
+enabled = false

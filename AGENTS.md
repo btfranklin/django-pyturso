@@ -16,6 +16,7 @@
 ## Commands
 
 - Install: `pdm install --group dev`
+- Offline documentation check: `pdm run docs`
 - Lint: `pdm run lint`
 - Type check: `pdm run typecheck`
 - Test: `pdm run test`

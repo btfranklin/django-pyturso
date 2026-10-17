@@ -1,19 +1,35 @@
 # Testing
 
+Install Perfect Doc from its [native releases](https://github.com/btfranklin/perfect-doc/releases)
+and put the executable on `PATH`. The check fails if the executable is missing.
+CI installs the verified 0.1.0 native archive and checks its SHA-256 digest.
+The installer uses the available archive for each runner, including the original
+Intel macOS archive when the runner uses that CPU.
+
+Run the offline documentation check with:
+
+```bash
+pdm run docs
+```
+
+The [Perfect Doc contract](../perfect-doc.toml) uses GitHub Markdown and fragment
+rules. It checks local links, required documents, fences, and tables without
+network access. Both aggregate checks include this command.
+
 Run the quick local gate with:
 
 ```bash
 pdm run check
 ```
 
-This command runs lint, type checks, and tests without the integration and
+This command checks documentation, lint, types, and tests without the integration and
 stress groups. Run the full gate with:
 
 ```bash
 pdm run check-full
 ```
 
-This command runs lint, type checks, and the full pytest suite, including
+This command checks documentation, lint, types, and the full pytest suite, including
 integration and stress tests. CI and tag verification use this full gate.
 CI also runs the full gate with current stable Django, `pyturso`, and
 `django-stubs` releases. This job updates only its temporary checkout's lockfile.

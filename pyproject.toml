@@ -38,6 +38,7 @@ fallback_version = "0.0.0"
 
 [tool.pdm.scripts]
 lint = "ruff check ."
+docs = "perfect-doc --no-banner check --offline ."
 typecheck = "mypy src tests scripts"
 test = "pytest"
 test-fast = "pytest --maxfail=1 -m 'not integration and not stress'"
@@ -49,8 +50,8 @@ test-mvcc = "pytest --ds=tests.settings.turso_mvcc tests/core/test_migration_cor
 build = "pdm build"
 package-test = "python scripts/verify_packages.py"
 verify-release = "python scripts/verify_packages.py"
-check = { composite = ["lint", "typecheck", "test-fast"] }
-check-full = { composite = ["lint", "typecheck", "test"] }
+check = { composite = ["docs", "lint", "typecheck", "test-fast"] }
+check-full = { composite = ["docs", "lint", "typecheck", "test"] }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

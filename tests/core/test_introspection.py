@@ -10,7 +10,8 @@ import pytest
 import sqlparse
 from django.core.management import call_command
 from django.core.management.color import no_style
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, models
+from django.test.utils import isolate_apps
 
 from django_pyturso.base import DatabaseWrapper
 from django_pyturso.introspection import DatabaseIntrospection, FlexibleFieldLookupDict
@@ -234,6 +235,62 @@ def test_declared_character_lengths_reach_introspection_and_inspectdb(
                 assert "max_length=" not in field_line
         finally:
             cursor.execute(f"DROP TABLE {table_sql}")
+
+
+@pytest.mark.core
+@pytest.mark.parametrize(
+    "options",
+    [{"journal_mode": "WAL"}, {"journal_mode": "MVCC", "transaction_mode": "CONCURRENT"}],
+    ids=["wal", "mvcc"],
+)
+def test_table_constraint_names_cannot_set_column_lengths(
+    django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
+) -> None:
+    with django_db_blocker.unblock(), isolate_apps(), registered_wrapper(
+        NAME=tmp_path / "constraint_sizes.db", OPTIONS=options
+    ) as wrapper:
+        class ConstraintSizes(models.Model):
+            value = models.CharField(max_length=20, db_column="CONSTRAINT")
+            checked = models.CharField(max_length=21, db_column="CHECK")
+            unique_value = models.CharField(max_length=22, db_column="UNIQUE")
+            primary_value = models.CharField(max_length=23, db_column="PRIMARY KEY")
+            foreign_value = models.CharField(max_length=24, db_column="FOREIGN KEY")
+
+            class Meta:
+                app_label = "intro_constraint_sizes"
+                db_table = "intro_constraint_sizes"
+                constraints = [
+                    models.UniqueConstraint(fields=["value"], name="VARCHAR(999)"),
+                    models.CheckConstraint(condition=models.Q(value__gte=""), name="CHAR(888)"),
+                ]
+
+        with wrapper.schema_editor() as editor:
+            editor.create_model(ConstraintSizes)
+        with wrapper.cursor() as cursor:
+            sizes = {
+                field.name: field.display_size
+                for field in wrapper.introspection.get_table_description(
+                    cursor, "intro_constraint_sizes"
+                )
+            }
+            assert sizes == {
+                "id": None,
+                "CONSTRAINT": 20,
+                "CHECK": 21,
+                "UNIQUE": 22,
+                "PRIMARY KEY": 23,
+                "FOREIGN KEY": 24,
+            }
+            constraints = wrapper.introspection.get_constraints(cursor, "intro_constraint_sizes")
+            assert constraints["VARCHAR(999)"]["unique"]
+            assert constraints["CHAR(888)"]["check"]
+
+        output = StringIO()
+        call_command("inspectdb", "intro_constraint_sizes", stdout=output, database=wrapper.alias)
+        source = output.getvalue()
+        assert "db_column='CONSTRAINT', unique=True, max_length=20" in source
+        assert "max_length=999" not in source
+        assert "max_length=888" not in source
 
 
 @pytest.mark.core

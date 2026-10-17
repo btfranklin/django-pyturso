@@ -39,6 +39,9 @@ class FieldInfo(NamedTuple):
 
 field_size_re = _lazy_re_compile(r"^\s*(?:var)?char\s*\(\s*(\d+)\s*\)\s*$", flags=2)
 _IDENTIFIER_CASE = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_TABLE_CONSTRAINT_KEYWORDS = (
+    "CHECK", "CONSTRAINT", "FOREIGN", "FOREIGN KEY", "PRIMARY", "PRIMARY KEY", "UNIQUE"
+)
 
 
 def get_field_size(name: str) -> int | None:
@@ -566,15 +569,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                     definition_start = False
                     if not token.match(
                         sqlparse.tokens.Keyword,
-                        (
-                            "CHECK",
-                            "CONSTRAINT",
-                            "FOREIGN",
-                            "FOREIGN KEY",
-                            "PRIMARY",
-                            "PRIMARY KEY",
-                            "UNIQUE",
-                        ),
+                        _TABLE_CONSTRAINT_KEYWORDS,
                     ):
                         column_name = _unquote_identifier(token.value)
                         collations[column_name] = None
@@ -606,14 +601,19 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         depth = 0
         for token in tokens:
             if depth == 0 and token.match(sqlparse.tokens.Punctuation, (",", ")")):
-                # Only the declared type after the column name can set its size.
-                declared_type = (
-                    _unquote_identifier(definition[1].value) if len(definition) > 1 else ""
-                )
-                if len(definition) > 2 and definition[2].match(sqlparse.tokens.Punctuation, "("):
-                    declared_type += "".join(part.value for part in definition[2:5])
-                if (size := get_field_size(declared_type)) is not None:
-                    sizes[_unquote_identifier(definition[0].value)] = size
+                if definition and not definition[0].match(
+                    sqlparse.tokens.Keyword, _TABLE_CONSTRAINT_KEYWORDS
+                ):
+                    # Only the declared type after the column name can set its size.
+                    declared_type = (
+                        _unquote_identifier(definition[1].value) if len(definition) > 1 else ""
+                    )
+                    if len(definition) > 2 and definition[2].match(
+                        sqlparse.tokens.Punctuation, "("
+                    ):
+                        declared_type += "".join(part.value for part in definition[2:5])
+                    if (size := get_field_size(declared_type)) is not None:
+                        sizes[_unquote_identifier(definition[0].value)] = size
                 definition = []
                 if token.value == ")":
                     break

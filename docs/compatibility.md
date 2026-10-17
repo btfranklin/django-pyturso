@@ -83,6 +83,8 @@ column's declared collation and preserves quoted column and collation names.
 Character lengths come only from the declared column type. Text in names,
 defaults, comments, and checks cannot set a length. Quoted table names that
 contain parentheses or commas do not change how column definitions are read.
+Table constraint names cannot set column lengths. Quoted column names that are
+SQL keywords, such as `CONSTRAINT`, still retain their declared lengths.
 
 ## Schema alterations
 

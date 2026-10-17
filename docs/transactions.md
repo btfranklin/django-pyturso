@@ -10,7 +10,9 @@ explicit outer transactions and savepoints.
 Turso can delay statements with result columns until fetch. The backend completes
 `INSERT`, `UPDATE`, `DELETE`, and `REPLACE` statements with `RETURNING` during
 `execute()` and stores their result rows in memory. This includes statements
-with a common table expression. Commit callbacks therefore see completed writes,
+with common table expressions, including names such as `merge` and `upsert`.
+The statement detector reads past each CTE body before it checks the main SQL verb.
+Commit callbacks therefore see completed writes,
 and a later fetch cannot restore a write after rollback. Large `RETURNING`
 results require memory for all returned rows; ordinary `SELECT` results remain
 streamed.

@@ -15,12 +15,27 @@ pytestmark = pytest.mark.core
 @pytest.mark.parametrize("options", MODES, ids=["wal", "mvcc"])
 @pytest.mark.parametrize("boundary", ["commit", "rollback", "savepoint"])
 @pytest.mark.parametrize("partial_fetch", [False, True])
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "INSERT INTO t VALUES(1),(2),(3) RETURNING id",
+        "WITH merge AS (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3) "
+        "INSERT INTO t SELECT * FROM merge RETURNING id",
+        "WITH upsert AS (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3) "
+        "INSERT INTO t SELECT * FROM upsert RETURNING id",
+        "WITH merge(id) AS (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3), "
+        "upsert(id) AS /* INSERT */ (SELECT id FROM (SELECT id FROM merge)) "
+        "INSERT INTO t SELECT id FROM upsert RETURNING id",
+    ],
+    ids=["insert", "merge-cte", "upsert-cte", "multiple-ctes"],
+)
 def test_returning_write_obeys_original_atomic_boundary(
     django_db_blocker: Any,
     tmp_path: Path,
     options: dict[str, str],
     boundary: str,
     partial_fetch: bool,
+    sql: str,
 ) -> None:
     with django_db_blocker.unblock(), registered_wrapper(
         NAME=tmp_path / "returning.db", OPTIONS=options
@@ -36,7 +51,7 @@ def test_returning_write_obeys_original_atomic_boundary(
                     using=wrapper.alias,
                 )
                 with transaction.atomic(using=wrapper.alias):
-                    pending.execute("INSERT INTO t VALUES(1),(2),(3) RETURNING id")
+                    pending.execute(sql)
                     if partial_fetch:
                         assert pending.fetchone() == (1,)
                     if boundary == "savepoint":

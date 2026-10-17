@@ -595,24 +595,38 @@ def _convert_placeholders(query: str, *, param_names: list[str] | None) -> str:
 def _is_write_statement(query: str) -> bool:
     """Find the first statement's verb, including after common table expressions."""
     depth = 0
-    in_cte = False
+    state = "statement"
     for token_type, value in cast(Any, sqlparse.lexer.tokenize)(query):
         if token_type in sqlparse.tokens.Whitespace or token_type in sqlparse.tokens.Comment:
             continue
-        if depth == 0:
+        if state == "after-cte":
+            if token_type in sqlparse.tokens.Punctuation and value == ",":
+                state = "cte-header"
+                continue
+            state = "statement"
+        if state == "statement":
             if value == ";":
                 continue
-            if token_type in sqlparse.tokens.Keyword.DML:
-                return value.upper() in {"INSERT", "UPDATE", "DELETE", "REPLACE"}
-            if not in_cte:
-                if value.upper() != "WITH":
-                    return False
-                in_cte = True
+            if token_type in sqlparse.tokens.Keyword and value.upper() == "WITH":
+                state = "cte-header"
+                continue
+            return token_type in sqlparse.tokens.Keyword.DML and value.upper() in {
+                "INSERT", "UPDATE", "DELETE", "REPLACE"
+            }
+        if (
+            state == "cte-header"
+            and depth == 0
+            and token_type in sqlparse.tokens.Keyword
+            and value.upper() == "AS"
+        ):
+            state = "cte-body"
         if token_type in sqlparse.tokens.Punctuation:
             if value == "(":
                 depth += 1
             elif value == ")":
                 depth -= 1
+                if state == "cte-body" and depth == 0:
+                    state = "after-cte"
     return False
 
 

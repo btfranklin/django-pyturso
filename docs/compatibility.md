@@ -51,9 +51,10 @@ normal wrapper without a backend translation layer.
 
 ## Schema introspection
 
-Table introspection and `inspectdb` omit Turso's internal tables. The filter
-matches the reserved name prefix literally, so similar user table names remain
-visible.
+Table introspection and `inspectdb` omit Turso's internal tables and tables with
+the reserved `sqlite_` prefix. The filters match these prefixes literally, so
+similar user table names, such as `sqlitereports_entry`, remain visible.
+Cascade flush uses the same table discovery to find all related user tables.
 
 Introspection preserves the column order in named and unnamed table-level
 `UNIQUE` constraints. The `inspectdb` command includes composite uniqueness

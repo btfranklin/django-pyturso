@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 import sqlparse
 from django.core.management import call_command
+from django.core.management.color import no_style
 from django.db import DatabaseError, connection
 
 from django_pyturso.base import DatabaseWrapper
@@ -135,6 +136,46 @@ def test_table_list_and_inspectdb_hide_turso_autoincrement_metadata(
         assert "class IntroAutoincrement(models.Model):" in generated_models
         assert f"db_table = '{near_prefix_table.lower()}'" in generated_models
         assert all(name not in generated_models for name in internal_names)
+
+
+@pytest.mark.core
+@pytest.mark.parametrize(
+    "options",
+    [{"journal_mode": "WAL"}, {"journal_mode": "MVCC", "transaction_mode": "CONCURRENT"}],
+    ids=["wal", "mvcc"],
+)
+def test_sqlite_like_user_tables_remain_visible_and_cascade_flush(
+    django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
+) -> None:
+    with django_db_blocker.unblock(), registered_wrapper(
+        NAME=tmp_path / "table_prefixes.db", OPTIONS=options
+    ) as wrapper:
+        with wrapper.cursor() as cursor:
+            cursor.execute("CREATE TABLE prefix_parent (id INTEGER PRIMARY KEY AUTOINCREMENT)")
+            cursor.execute(
+                "CREATE TABLE sqlitereports_entry (id INTEGER PRIMARY KEY, parent_id INTEGER "
+                "REFERENCES prefix_parent(id) DEFERRABLE INITIALLY DEFERRED)"
+            )
+            cursor.execute("CREATE VIEW sqlitereports_view AS SELECT id FROM sqlitereports_entry")
+            cursor.execute("INSERT INTO prefix_parent DEFAULT VALUES")
+            cursor.execute("INSERT INTO sqlitereports_entry VALUES(1, 1)")
+            tables = wrapper.introspection.table_names(cursor)
+            assert "sqlitereports_entry" in tables
+            assert "sqlite_sequence" not in tables
+            assert not any(name.startswith("__turso_internal_") for name in tables)
+            assert "sqlitereports_view" in wrapper.introspection.table_names(
+                cursor, include_views=True
+            )
+
+        output = StringIO()
+        call_command("inspectdb", stdout=output, database=wrapper.alias)
+        assert "db_table = 'sqlitereports_entry'" in output.getvalue()
+        statements = wrapper.ops.sql_flush(no_style(), ["prefix_parent"], allow_cascade=True)
+        wrapper.ops.execute_sql_flush(statements)
+        with wrapper.cursor() as cursor:
+            for table in ("prefix_parent", "sqlitereports_entry"):
+                cursor.execute(f'SELECT COUNT(*) FROM "{table}"')
+                assert cursor.fetchone() == (0,)
 
 
 @pytest.mark.core

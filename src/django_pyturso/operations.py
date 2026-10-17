@@ -286,11 +286,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         instead; this also avoids parsing table SQL with a regular expression.
         """
         with self.connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-            )
-            database_tables = [str(row[0]) for row in cursor.fetchall()]
+            database_tables = self.connection.introspection.table_names(cursor)
             table_names = {_identifier_key(table): table for table in database_tables}
             referencing: dict[str, set[str]] = {}
             for candidate in database_tables:

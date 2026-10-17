@@ -13,6 +13,7 @@ from django.db.models import Func, Sum, Value
 from django.db.models.constants import OnConflict
 from django.db.models.expressions import Col
 
+from django_pyturso.introspection import DatabaseIntrospection
 from django_pyturso.operations import DatabaseOperations
 
 pytestmark = pytest.mark.core
@@ -55,7 +56,7 @@ class _GraphCursor:
 
     def execute(self, sql: str) -> None:
         if "sqlite_master" in sql:
-            self.rows = [(table,) for table in self.foreign_keys]
+            self.rows = [(table, "table") for table in self.foreign_keys]
             return
         table = next(
             table for table in self.foreign_keys if f'"{table}"' in sql
@@ -72,6 +73,7 @@ class _GraphCursor:
 class _GraphConnection:
     def __init__(self, foreign_keys: dict[str, tuple[str, ...]]) -> None:
         self.foreign_keys = foreign_keys
+        self.introspection = DatabaseIntrospection(self)  # type: ignore[arg-type]
 
     def cursor(self) -> _GraphCursor:
         return _GraphCursor(self.foreign_keys)

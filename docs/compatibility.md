@@ -73,3 +73,6 @@ syntax uses from their position in the expression.
 
 A column rename that also changes `db_index` remakes the table. This preserves
 stored rows and applies the requested index state.
+When a referenced unique column is renamed during a table remake, related tables
+are also remade. Their foreign keys use the new column name. Forward and reverse
+migrations preserve rows when the rename also changes nullability or `db_index`.

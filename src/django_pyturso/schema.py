@@ -409,7 +409,11 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         self._remake_table(model, alter_fields=[(old_field, new_field)])
         old_collation = old_db_params.get("collation")
         new_collation = new_db_params.get("collation")
-        if new_field.unique and (old_type != new_type or old_collation != new_collation):
+        if new_field.unique and (
+            old_type != new_type
+            or old_collation != new_collation
+            or old_field.column != new_field.column
+        ):
             related_models = set()
             opts = new_field.model._meta
             for remote_field in opts.related_objects:

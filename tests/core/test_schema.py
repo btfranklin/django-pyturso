@@ -251,6 +251,120 @@ def test_column_rename_and_index_change_preserve_data_and_index_state(
 
 
 @pytest.mark.core
+@pytest.mark.parametrize(
+    ("old_null", "old_index", "new_null", "new_index"),
+    [
+        pytest.param(True, False, False, False, id="nullability"),
+        pytest.param(False, False, False, True, id="add-index"),
+        pytest.param(False, True, False, False, id="remove-index"),
+    ],
+)
+def test_referenced_column_rename_and_attribute_change_run_forward_and_backward(
+    django_db_blocker: Any,
+    old_null: bool,
+    old_index: bool,
+    new_null: bool,
+    new_index: bool,
+) -> None:
+    class CreateRelatedMigration(Migration):
+        operations = [
+            CreateModel(
+                name="Parent",
+                fields=[
+                    ("id", models.BigAutoField(primary_key=True)),
+                    (
+                        "code",
+                        models.CharField(
+                            max_length=20,
+                            unique=True,
+                            null=old_null,
+                            db_index=old_index,
+                            db_column="old_code",
+                        ),
+                    ),
+                ],
+                options={"db_table": "schema_rename_parent"},
+            ),
+            CreateModel(
+                name="Child",
+                fields=[
+                    ("id", models.BigAutoField(primary_key=True)),
+                    (
+                        "parent",
+                        models.ForeignKey(
+                            "schema_tests.Parent", to_field="code", on_delete=models.CASCADE
+                        ),
+                    ),
+                ],
+                options={"db_table": "schema_rename_child"},
+            ),
+        ]
+
+    class AlterRelatedMigration(Migration):
+        operations = [
+            AlterField(
+                "parent",
+                "code",
+                models.CharField(
+                    max_length=20,
+                    unique=True,
+                    null=new_null,
+                    db_index=new_index,
+                    db_column="new_code",
+                ),
+            )
+        ]
+
+    create = CreateRelatedMigration("create_related", "schema_tests")
+    alter = AlterRelatedMigration("alter_related", "schema_tests")
+    with django_db_blocker.unblock():
+        with connection.schema_editor() as editor:
+            before = create.apply(ProjectState(), editor)
+        parent = before.apps.get_model("schema_tests", "Parent")
+        child = before.apps.get_model("schema_tests", "Child")
+        parent.objects.create(code="abc")
+        child.objects.create(parent_id="abc")
+        try:
+            with connection.schema_editor() as editor:
+                after = alter.apply(before.clone(), editor)
+            for state, column, nullable in (
+                (after, "new_code", new_null),
+                (before, "old_code", old_null),
+            ):
+                if state is before:
+                    with connection.schema_editor() as editor:
+                        alter.unapply(before, editor)
+                parent = state.apps.get_model("schema_tests", "Parent")
+                child = state.apps.get_model("schema_tests", "Child")
+                assert list(parent.objects.values_list("code", flat=True)) == ["abc"]
+                assert list(child.objects.values_list("parent_id", "parent__code")) == [
+                    ("abc", "abc")
+                ]
+                with connection.cursor() as cursor:
+                    description = connection.introspection.get_table_description(
+                        cursor, parent._meta.db_table
+                    )
+                    constraints = connection.introspection.get_constraints(
+                        cursor, child._meta.db_table
+                    )
+                assert next(field for field in description if field.name == column).null_ok == (
+                    nullable
+                )
+                assert [
+                    details["foreign_key"]
+                    for details in constraints.values()
+                    if details["foreign_key"]
+                ] == [(parent._meta.db_table, column)]
+                connection.check_constraints()
+                with pytest.raises(IntegrityError), transaction.atomic():
+                    child.objects.create(parent_id="missing")
+        finally:
+            with connection.schema_editor() as editor:
+                editor.execute("DROP TABLE schema_rename_child")
+                editor.execute("DROP TABLE schema_rename_parent")
+
+
+@pytest.mark.core
 def test_migration_operations_remake_tables_and_preserve_data(
     django_db_blocker: Any,
 ) -> None:

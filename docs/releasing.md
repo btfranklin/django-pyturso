@@ -8,11 +8,20 @@
    application checks with both database types.
 4. The same tag creates a GitHub draft release. Review its notes and publish it
    after verification completes.
-5. Publishing the GitHub Release triggers PyPI Trusted Publishing.
+5. Publishing the GitHub Release starts the same verification workflow again
+   for the release commit. PyPI Trusted Publishing waits for that run to pass.
 
-Before upload, the publication job checks the lockfile and the full test gate.
-It builds both archives, checks their version against the release tag, and
-clean-installs each archive for the Django smoke tests.
+Before upload, the reusable verification workflow checks the release commit on
+macOS, Linux, and Windows. Each platform runs the full check and both MVCC modes.
+The package job waits for all platforms, builds both archives, checks their
+version against the release tag, and clean-installs each archive for the Django
+smoke tests. It stores the verified archives as a workflow artifact.
+
+The publication job runs only after verification succeeds. It downloads those
+archives from the same run and uploads them without a rebuild. A failed,
+cancelled, or incomplete verification cannot start publication. Only the
+publication job has `id-token: write`; the verification jobs retain read-only
+repository access. Publishing the GitHub Release remains a human action.
 
 To run the platform and package checks before you create a tag, push the branch
 and start the verification workflow:

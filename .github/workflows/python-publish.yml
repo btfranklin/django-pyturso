@@ -11,7 +11,11 @@ permissions:
     contents: read
 
 jobs:
+    verify-release:
+        uses: ./.github/workflows/verify-release.yml
+
     publish:
+        needs: verify-release
         runs-on: ubuntu-latest
         timeout-minutes: 30
         environment: release
@@ -21,23 +25,10 @@ jobs:
             id-token: write
 
         steps:
-            - uses: actions/checkout@v7
+            - name: Download verified package archives
+              uses: actions/download-artifact@v8
               with:
-                  fetch-depth: 0
-            - uses: actions/setup-python@v7
-              with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-            - run: pdm lock --check
-            - run: pdm sync -G dev --clean
-            - name: Install documentation checker
-              run: python scripts/install_perfect_doc.py "${{ runner.temp }}/perfect-doc"
-            - run: pdm run check-full
-            - name: Build package
-              run: pdm build
-            - name: Verify release artifacts
-              env:
-                  RELEASE_TAG: ${{ github.event.release.tag_name }}
-              run: pdm run verify-release --expected-version "${RELEASE_TAG#v}"
+                  name: verified-python-package
+                  path: dist
             - name: Publish package with Trusted Publishing
               uses: pypa/gh-action-pypi-publish@release/v1

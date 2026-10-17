@@ -51,6 +51,10 @@ normal wrapper without a backend translation layer.
 
 ## Schema introspection
 
+Table introspection and `inspectdb` omit Turso's internal tables. The filter
+matches the reserved name prefix literally, so similar user table names remain
+visible.
+
 Introspection preserves the column order in named and unnamed table-level
 `UNIQUE` constraints. The `inspectdb` command includes composite uniqueness
 rules in the generated model's `unique_together` setting.

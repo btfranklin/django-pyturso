@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,6 +13,7 @@ from django.db import DatabaseError, connection
 
 from django_pyturso.base import DatabaseWrapper
 from django_pyturso.introspection import DatabaseIntrospection, FlexibleFieldLookupDict
+from tests.core.transactions.test_state_machine import registered_wrapper
 from tests.support import wrapper_settings
 
 
@@ -78,6 +80,61 @@ def test_table_description_type_affinity_and_composite_primary_key(
         finally:
             cursor.execute("DROP VIEW IF EXISTS intro_parent_view")
             cursor.execute("DROP TABLE IF EXISTS intro_parent")
+
+
+@pytest.mark.core
+@pytest.mark.parametrize(
+    "options",
+    [{"journal_mode": "WAL"}, {"journal_mode": "MVCC", "transaction_mode": "CONCURRENT"}],
+    ids=["wal", "mvcc"],
+)
+def test_table_list_and_inspectdb_hide_turso_autoincrement_metadata(
+    django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
+) -> None:
+    with django_db_blocker.unblock(), registered_wrapper(
+        NAME=tmp_path / "introspection.db", OPTIONS=options
+    ) as wrapper:
+        with wrapper.cursor() as cursor:
+            cursor.execute(
+                "CREATE TABLE intro_autoincrement ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT)"
+            )
+            cursor.execute("INSERT INTO intro_autoincrement (value) VALUES ('present')")
+            near_prefix_table = (
+                "XXtursoXinternalXseqXXXtursoXinternalXautoincrementXuser"
+            )
+            cursor.execute(f'CREATE TABLE "{near_prefix_table}" (value TEXT)')
+            cursor.execute(
+                "CREATE VIEW intro_autoincrement_view AS "
+                "SELECT value FROM intro_autoincrement"
+            )
+
+            cursor.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE name GLOB '__turso_internal_*'"
+            )
+            internal_names = {row[0] for row in cursor.fetchall()}
+            assert (
+                "__turso_internal_seq___turso_internal_autoincrement_intro_autoincrement"
+                in internal_names
+            )
+            assert internal_names
+
+            table_names = set(wrapper.introspection.table_names(cursor))
+            assert internal_names.isdisjoint(table_names)
+            assert "intro_autoincrement" in table_names
+            assert near_prefix_table.lower() in table_names
+            table_types = {
+                info.name: info.type for info in wrapper.introspection.get_table_list(cursor)
+            }
+            assert table_types["intro_autoincrement_view"] == "v"
+
+        output = StringIO()
+        call_command("inspectdb", stdout=output, database=wrapper.alias)
+        generated_models = output.getvalue()
+        assert "class IntroAutoincrement(models.Model):" in generated_models
+        assert f"db_table = '{near_prefix_table.lower()}'" in generated_models
+        assert all(name not in generated_models for name in internal_names)
 
 
 @pytest.mark.core

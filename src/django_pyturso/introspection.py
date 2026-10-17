@@ -129,7 +129,9 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             """
             SELECT name, type
             FROM sqlite_master
-            WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
+            WHERE type IN ('table', 'view')
+                AND name NOT LIKE 'sqlite_%'
+                AND name NOT GLOB '__turso_internal_*'
             ORDER BY name
             """
         )

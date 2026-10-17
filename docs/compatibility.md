@@ -59,6 +59,8 @@ Table introspection and `inspectdb` omit Turso's internal tables and tables with
 the reserved `sqlite_` prefix. The filters match these prefixes literally, so
 similar user table names, such as `sqlitereports_entry`, remain visible.
 Cascade flush uses the same table discovery to find all related user tables.
+Foreign-key inspection uses the installed Django relation interface. On Django
+6.1, `inspectdb` also preserves database deletion actions such as `ON DELETE CASCADE`.
 
 Introspection preserves the column order in named and unnamed table-level
 `UNIQUE` constraints. The `inspectdb` command includes composite uniqueness

@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import weakref
 from collections.abc import Iterator
-from typing import Any, cast
+from typing import cast
 
 import pytest
+import turso
 from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError
+from django.db.backends.utils import CursorWrapper
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper, _get_varchar_column
-from tests.support import wrapper_settings
+from django_pyturso.introspection import ForeignKeyRow
+from tests.support import parameter_cursor, wrapper_settings
 
 pytestmark = pytest.mark.core
 
@@ -43,7 +47,7 @@ class RecordingCursor:
 
 
 def attach(wrapper: DatabaseWrapper, connection: object) -> None:
-    wrapper.connection = cast(Any, connection)
+    wrapper.connection = cast(turso.Connection, connection)
 
 
 @pytest.mark.parametrize(
@@ -103,7 +107,7 @@ def test_constraint_discovery_passes_the_live_cursor(
         received.append(candidate)
         return ["child"]
 
-    def foreign_keys(candidate: object, table: str) -> dict[int, list[tuple[Any, ...]]]:
+    def foreign_keys(candidate: object, table: str) -> dict[int, list[tuple[object, ...]]]:
         checked.append(table)
         return {}
 
@@ -122,7 +126,9 @@ def test_foreign_key_check_uses_quoted_child_and_parent_aliases(
 ) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(), "foreign_key_aliases")
     cursor = RecordingCursor()
-    rows = [(0, 0, "parent", "parent_id", "id")]
+    rows: list[ForeignKeyRow] = [
+        (0, 0, "parent", "parent_id", "id", "NO ACTION", "NO ACTION", "NONE")
+    ]
 
     monkeypatch.setattr(
         wrapper.introspection,
@@ -135,7 +141,7 @@ def test_foreign_key_check_uses_quoted_child_and_parent_aliases(
         lambda candidate, table, alias: ([f'{alias}."id"'], ["id"]),
     )
 
-    wrapper._check_foreign_key(cursor, "child", rows)
+    wrapper._check_foreign_key(cast(CursorWrapper, cursor), "child", rows)
 
     assert cursor.statements == [
         'SELECT "django_pyturso_child"."id", '
@@ -198,11 +204,11 @@ def test_memory_lifecycle_resets_health_check_state(
     wrapper.close_if_unusable_or_obsolete()
 
     assert wrapper.health_check_done is False
-    assert wrapper.connection is physical
+    assert wrapper.connection is cast(turso.Connection, physical)
 
 
 def test_named_parameters_execute_and_executemany_through_driver(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(), "named_parameters")
     try:
@@ -214,14 +220,14 @@ def test_named_parameters_execute_and_executemany_through_driver(
             assert cursor.fetchone() == (5,)
 
             cursor.execute("CREATE TABLE sample (value TEXT)")
-            cursor.executemany(
+            parameter_cursor(cursor).executemany(
                 "INSERT INTO sample VALUES (%(value)s)",
                 ({"value": "first"}, {"value": "second"}),
             )
 
-            empty_result = cursor.executemany(
+            empty_result = parameter_cursor(cursor).executemany(
                 "INSERT INTO sample VALUES (%(value)s)",
-                cast(Any, iter(())),
+                iter(()),
             )
             assert empty_result is cursor.cursor
             cursor.execute("SELECT value FROM sample ORDER BY value")
@@ -231,15 +237,17 @@ def test_named_parameters_execute_and_executemany_through_driver(
 
 
 @pytest.mark.parametrize("named", [False, True])
-def test_executemany_streams_parameter_rows(named: bool, django_db_blocker: Any) -> None:
+def test_executemany_streams_parameter_rows(
+    named: bool, django_db_blocker: DjangoDbBlocker
+) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(), f"streaming_{named}")
-    live_rows: list[weakref.ReferenceType[Any]] = []
+    live_rows: list[weakref.ReferenceType[Row | NamedRow]] = []
     peak_live = 0
 
-    class Row(list[Any]):
+    class Row(list[int]):
         pass
 
-    class NamedRow(dict[str, Any]):
+    class NamedRow(dict[str, int]):
         pass
 
     def rows() -> Iterator[Row | NamedRow]:
@@ -259,7 +267,7 @@ def test_executemany_streams_parameter_rows(named: bool, django_db_blocker: Any)
                 if named
                 else "INSERT INTO streamed VALUES (%s)"
             )
-            cursor.executemany(query, cast(Any, rows()))
+            parameter_cursor(cursor).executemany(query, rows())
             cursor.execute("SELECT COUNT(*) FROM streamed")
             assert cursor.fetchone() == (1000,)
 

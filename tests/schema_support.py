@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Never, cast
 from unittest.mock import MagicMock
 
 import pytest
-from django.db import connection
+from django.db import connection, models
 
+from django_pyturso.base import DatabaseWrapper
 from django_pyturso.schema import DatabaseSchemaEditor
 
 
@@ -20,7 +21,7 @@ class _Cursor:
     def __enter__(self) -> _Cursor:
         return self
 
-    def __exit__(self, *_args: Any) -> None:
+    def __exit__(self, *_args: object) -> None:
         return None
 
     def execute(self, sql: str) -> None:
@@ -52,16 +53,17 @@ class SchemaConnection:
         self.force_closed += 1
 
 
-def schema_editor(wrapper: Any | None = None) -> DatabaseSchemaEditor:
+# These doubles supply only the attributes used by the tested branch.
+def schema_editor(wrapper: object | None = None) -> DatabaseSchemaEditor:
     editor = DatabaseSchemaEditor(
-        wrapper or SchemaConnection(),  # type: ignore[arg-type]
+        cast(DatabaseWrapper, wrapper or SchemaConnection()),
         atomic=False,
     )
     editor.deferred_sql = []
     return editor
 
 
-def hashable_namespace(**attributes: Any) -> Any:
+def hashable_namespace(**attributes: object) -> object:
     value = type("BranchFixture", (), {})()
     for name, attribute in attributes.items():
         setattr(value, name, attribute)
@@ -81,11 +83,24 @@ def remake_editor(
     return editor, delete
 
 
-def many_to_many_field(through: Any, local: str, reverse: str) -> Any:
-    return SimpleNamespace(
-        remote_field=SimpleNamespace(through=through),
-        m2m_reverse_field_name=lambda: reverse,
-        m2m_field_name=lambda: local,
-        m2m_column_name=lambda: f"{local}_id",
-        m2m_reverse_name=lambda: f"{reverse}_id",
+def many_to_many_field(
+    through: object, local: str, reverse: str
+) -> models.ManyToManyField[models.Model, models.Model]:
+    return cast(
+        models.ManyToManyField[models.Model, models.Model],
+        SimpleNamespace(
+            remote_field=SimpleNamespace(through=through),
+            m2m_reverse_field_name=lambda: reverse,
+            m2m_field_name=lambda: local,
+            m2m_column_name=lambda: f"{local}_id",
+            m2m_reverse_name=lambda: f"{reverse}_id",
+        ),
     )
+
+
+def model_double(value: object) -> type[models.Model]:
+    return cast(type[models.Model], value)
+
+
+def field_double(value: object) -> models.Field[Never, object]:
+    return cast(models.Field[Never, object], value)

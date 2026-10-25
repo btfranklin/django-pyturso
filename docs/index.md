@@ -14,5 +14,6 @@
 - [Post-v1 roadmap](roadmap.md): explicitly deferred optional and operational
   capabilities.
 - [Testing](testing.md): focused test groups and package verification.
+- [Python type safety](type-safety.md): type checks, data boundaries, and external limits.
 - [Security and supply chain](security.md): path and SQL boundaries, dependency
   policy, and workflows.

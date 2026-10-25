@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, Never, cast
 
 import sqlparse
 from django.db import DatabaseError
@@ -14,8 +14,11 @@ from django.db.models import Index
 from django.db.models.fields import Field
 from django.utils.regex_helper import _lazy_re_compile
 
+from ._typing import SQLStatement, SQLToken
+
 if TYPE_CHECKING:
     from django.db.backends.base.introspection import _ConstraintDict, _SequenceDict
+    from django.db.models.deletion import DatabaseOnDelete, _Collector
 
 # Type-affinity mapping, schema parsing, and constraint assembly follow Django
 # 6.0.7's SQLite dialect.
@@ -31,16 +34,31 @@ class FieldInfo(NamedTuple):
     precision: int | None
     scale: int | None
     null_ok: bool
-    default: Any
+    default: str | None
     collation: str | None
     pk: bool
     has_json_constraint: bool
 
 
+# Each row shape follows its PRAGMA result columns.
+type ForeignKeyRow = tuple[int, int, str, str, str | None, str, str, str]
+type _TableColumn = tuple[int, str, str, int, str | None, int, int]
+type _PrimaryKeyColumn = tuple[int, str, str, int, str | None, int]
+type _IndexRow = tuple[int, str, int, str, int]
+type _IndexColumn = tuple[int, int, str | None, int, str, int]
+type _Relation = tuple[str, str, _Collector | DatabaseOnDelete | None]
+
+
 field_size_re = _lazy_re_compile(r"^\s*(?:var)?char\s*\(\s*(\d+)\s*\)\s*$", flags=2)
 _IDENTIFIER_CASE = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _TABLE_CONSTRAINT_KEYWORDS = (
-    "CHECK", "CONSTRAINT", "FOREIGN", "FOREIGN KEY", "PRIMARY", "PRIMARY KEY", "UNIQUE"
+    "CHECK",
+    "CONSTRAINT",
+    "FOREIGN",
+    "FOREIGN KEY",
+    "PRIMARY",
+    "PRIMARY KEY",
+    "UNIQUE",
 )
 
 
@@ -115,8 +133,9 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
     data_types_reverse = FlexibleFieldLookupDict()
 
-    def get_field_type(self, data_type: str, description: Any) -> str:
-        field_type = super().get_field_type(data_type, description)
+    # Each backend defines its own FieldInfo shape; the base stub fixes one shape.
+    def get_field_type(self, data_type: str, description: FieldInfo) -> str:  # type: ignore[override]
+        field_type = self.data_types_reverse[data_type]
         if description.pk and field_type in {
             "BigIntegerField",
             "IntegerField",
@@ -127,7 +146,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             return "JSONField"
         return field_type
 
-    def get_table_list(self, cursor: Any) -> list[TableInfo]:
+    def get_table_list(self, cursor: CursorWrapper) -> list[TableInfo]:
         cursor.execute(
             """
             SELECT name, type
@@ -138,11 +157,12 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             ORDER BY name
             """
         )
-        return [TableInfo(name, object_type[0]) for name, object_type in cursor.fetchall()]
+        rows: list[tuple[str, str]] = cursor.fetchall()
+        return [TableInfo(name, object_type[0]) for name, object_type in rows]
 
-    def get_table_description(self, cursor: Any, table_name: str) -> list[FieldInfo]:
+    def get_table_description(self, cursor: CursorWrapper, table_name: str) -> list[FieldInfo]:
         cursor.execute("PRAGMA table_xinfo(%s)" % self.connection.ops.quote_name(table_name))
-        table_info = cursor.fetchall()
+        table_info: list[_TableColumn] = cursor.fetchall()
         if not table_info:
             raise DatabaseError(f"Table {table_name} does not exist (empty pragma).")
 
@@ -177,7 +197,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         self,
         cursor: CursorWrapper,
         table_name: str,
-        table_fields: Iterable[Field[Any, Any]] = (),
+        table_fields: Iterable[Field[Never, object]] = (),
     ) -> list[_SequenceDict]:
         primary_key_columns = self.get_primary_key_columns(cursor, table_name) or []
         if len(primary_key_columns) != 1:
@@ -186,24 +206,23 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
     # django-stubs 6.1.2 still declares the old two-value relation tuple.
     def get_relations(  # type: ignore[override]
-        self, cursor: Any, table_name: str
-    ) -> dict[str, tuple[str, str, Any]]:
+        self, cursor: CursorWrapper, table_name: str
+    ) -> dict[str, _Relation]:
         rows = self._foreign_key_rows(cursor, table_name)
-        relations: dict[str, tuple[str, str, Any]] = {}
+        relations: dict[str, _Relation] = {}
         for rows_for_constraint in rows.values():
             target_table = rows_for_constraint[0][2]
             target_columns = self._resolve_foreign_key_target_columns(
                 cursor, target_table, rows_for_constraint
             )
             for row, target_column in zip(rows_for_constraint, target_columns, strict=True):
-                relations[row[3]] = (
-                    target_column, target_table, self.on_delete_types.get(row[6])
-                )
+                relations[row[3]] = (target_column, target_table, self.on_delete_types.get(row[6]))
         return relations
 
-    def get_primary_key_columns(self, cursor: Any, table_name: str) -> list[str] | None:
+    def get_primary_key_columns(self, cursor: CursorWrapper, table_name: str) -> list[str] | None:
         cursor.execute("PRAGMA table_info(%s)" % self.connection.ops.quote_name(table_name))
-        primary_key_rows = [row for row in cursor.fetchall() if row[5]]
+        table_info: list[_PrimaryKeyColumn] = cursor.fetchall()
+        primary_key_rows = [row for row in table_info if row[5]]
         if not primary_key_rows:
             return None
         primary_key_rows.sort(key=lambda row: row[5])
@@ -217,7 +236,8 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         )
 
         cursor.execute("PRAGMA index_list(%s)" % self.connection.ops.quote_name(table_name))
-        for row in cursor.fetchall():
+        indexes: list[_IndexRow] = cursor.fetchall()
+        for row in indexes:
             index_name = row[1]
             unique = bool(row[2])
             index_sql = self._get_schema_sql(cursor, "index", index_name)
@@ -225,68 +245,63 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 continue
             cursor.execute("PRAGMA index_xinfo(%s)" % self.connection.ops.quote_name(index_name))
             key_columns: list[str] = []
-            orders: list[str] = []
-            for index_info in cursor.fetchall():
+            orders: list[Literal["ASC", "DESC"]] = []
+            index_columns: list[_IndexColumn] = cursor.fetchall()
+            for index_info in index_columns:
                 if not bool(index_info[5]):
                     continue
                 key_columns.append(str(index_info[2] or ""))
                 orders.append("DESC" if bool(index_info[3]) else "ASC")
-            constraints[index_name] = cast(
-                "_ConstraintDict",
-                {
-                    "columns": key_columns,
-                    "orders": orders,
-                    "primary_key": False,
-                    "unique": unique,
-                    "foreign_key": None,
-                    "check": False,
-                    "index": True,
-                    "type": Index.suffix,
-                    "definition": index_sql,
-                },
-            )
+            constraints[index_name] = {
+                "columns": key_columns,
+                "orders": orders,
+                "primary_key": False,
+                "unique": unique,
+                "foreign_key": None,
+                "check": False,
+                "index": True,
+                "type": Index.suffix,
+                "definition": index_sql,
+            }
 
         primary_key_columns = self.get_primary_key_columns(cursor, table_name)
         if primary_key_columns:
-            constraints["__primary__"] = cast(
-                "_ConstraintDict",
-                {
-                    "columns": primary_key_columns,
-                    "primary_key": True,
-                    "unique": False,
-                    "foreign_key": None,
-                    "check": False,
-                    "index": False,
-                },
-            )
+            constraints["__primary__"] = {
+                "columns": primary_key_columns,
+                "primary_key": True,
+                "unique": False,
+                "foreign_key": None,
+                "check": False,
+                "index": False,
+            }
 
         for foreign_key_id, rows in self._foreign_key_rows(cursor, table_name).items():
             target_table = rows[0][2]
             target_columns = self._resolve_foreign_key_target_columns(cursor, target_table, rows)
-            constraints[f"fk_{foreign_key_id}"] = cast(
-                "_ConstraintDict",
-                {
-                    "columns": [row[3] for row in rows],
-                    "primary_key": False,
-                    "unique": False,
-                    "foreign_key": (target_table, target_columns[0]),
-                    "check": False,
-                    "index": False,
-                },
-            )
+            constraints[f"fk_{foreign_key_id}"] = {
+                "columns": [row[3] for row in rows],
+                "primary_key": False,
+                "unique": False,
+                "foreign_key": (target_table, target_columns[0]),
+                "check": False,
+                "index": False,
+            }
         return constraints
 
-    def _foreign_key_rows(self, cursor: Any, table_name: str) -> dict[int, list[tuple[Any, ...]]]:
+    def _foreign_key_rows(
+        self, cursor: CursorWrapper, table_name: str
+    ) -> dict[int, list[ForeignKeyRow]]:
         cursor.execute("PRAGMA foreign_key_list(%s)" % self.connection.ops.quote_name(table_name))
-        grouped: defaultdict[int, list[tuple[Any, ...]]] = defaultdict(list)
-        for row in cursor.fetchall():
-            grouped[int(row[0])].append(tuple(row))
+        grouped: defaultdict[int, list[ForeignKeyRow]] = defaultdict(list)
+        foreign_keys: list[ForeignKeyRow] = cursor.fetchall()
+        for row in foreign_keys:
+            grouped[row[0]].append(row)
         for rows in grouped.values():
             rows.sort(key=lambda row: row[1])
         return dict(grouped)
 
     def _resolve_foreign_key_target_columns(
-        self, cursor: Any, target_table: str, rows: list[tuple[Any, ...]]
+        self, cursor: CursorWrapper, target_table: str, rows: list[ForeignKeyRow]
     ) -> list[str]:
         declared_columns = [row[4] for row in rows]
         if all(column not in (None, "") for column in declared_columns):
@@ -314,18 +329,18 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
         return resolved
 
     @staticmethod
-    def _get_schema_sql(cursor: Any, object_type: str, name: str) -> str | None:
+    def _get_schema_sql(cursor: CursorWrapper, object_type: str, name: str) -> str | None:
         cursor.execute(
             "SELECT sql FROM sqlite_master WHERE type = %s AND name = %s COLLATE NOCASE",
             (object_type, name),
         )
-        row = cursor.fetchone()
+        row: tuple[str | None] | None = cursor.fetchone()
         return row[0] if row else None
 
     @staticmethod
     def _parse_column_or_constraint_definition(
-        tokens: Iterator[Any], columns: set[str]
-    ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None, Any]:
+        tokens: Iterator[SQLToken], columns: set[str]
+    ) -> tuple[str | None, _ConstraintDict | None, _ConstraintDict | None, SQLToken]:
         token = None
         is_constraint_definition = None
         is_named_constraint = False
@@ -477,7 +492,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                     check_expects_operand = token.ttype in sqlparse.tokens.Operator
         if token is None:
             raise DatabaseError("Unable to parse an empty table definition.")
-        unique_constraint = (
+        unique_constraint: _ConstraintDict | None = (
             {
                 "unique": True,
                 "columns": unique_columns,
@@ -489,7 +504,7 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             if unique_columns
             else None
         )
-        check_constraint = (
+        check_constraint: _ConstraintDict | None = (
             {
                 "check": True,
                 "columns": list(dict.fromkeys(check_columns)),
@@ -505,14 +520,14 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
 
     @classmethod
     def _parse_table_constraints(cls, sql: str, columns: set[str]) -> dict[str, _ConstraintDict]:
-        statements = sqlparse.parse(sql)
+        statements = cast(tuple[SQLStatement, ...], sqlparse.parse(sql))
         if not statements:
             return {}
         constraints: dict[str, _ConstraintDict] = {}
         unnamed_index = 0
         tokens = (
             token
-            for token in statements[0].flatten()  # type: ignore[no-untyped-call]
+            for token in statements[0].flatten()
             if not token.is_whitespace and token.ttype not in sqlparse.tokens.Comment
         )
         for token in tokens:
@@ -528,12 +543,10 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
                 if constraint is None:
                     continue
                 if constraint_name:
-                    constraints[constraint_name] = cast("_ConstraintDict", constraint)
+                    constraints[constraint_name] = constraint
                 else:
                     unnamed_index += 1
-                    constraints[f"__unnamed_constraint_{unnamed_index}__"] = cast(
-                        "_ConstraintDict", constraint
-                    )
+                    constraints[f"__unnamed_constraint_{unnamed_index}__"] = constraint
             if end_token.match(sqlparse.tokens.Punctuation, ")"):
                 break
         return constraints
@@ -542,13 +555,13 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     def _get_column_collations(table_sql: str | None) -> dict[str, str | None]:
         if not table_sql:
             return {}
-        statements = sqlparse.parse(table_sql)
+        statements = cast(tuple[SQLStatement, ...], sqlparse.parse(table_sql))
         if not statements:
             return {}
         collations: dict[str, str | None] = {}
         tokens = (
             token
-            for token in statements[0].flatten()  # type: ignore[no-untyped-call]
+            for token in statements[0].flatten()
             if not token.is_whitespace and token.ttype not in sqlparse.tokens.Comment
         )
         for token in tokens:
@@ -590,19 +603,19 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
     def _get_column_sizes(table_sql: str | None) -> dict[str, int]:
         if not table_sql:
             return {}
-        statements = sqlparse.parse(table_sql)
+        statements = cast(tuple[SQLStatement, ...], sqlparse.parse(table_sql))
         if not statements:
             return {}
         tokens = (
             token
-            for token in statements[0].flatten()  # type: ignore[no-untyped-call]
+            for token in statements[0].flatten()
             if not token.is_whitespace and token.ttype not in sqlparse.tokens.Comment
         )
         for token in tokens:
             if token.match(sqlparse.tokens.Punctuation, "("):
                 break
         sizes: dict[str, int] = {}
-        definition: list[Any] = []
+        definition: list[SQLToken] = []
         depth = 0
         for token in tokens:
             if depth == 0 and token.match(sqlparse.tokens.Punctuation, (",", ")")):
@@ -636,14 +649,10 @@ class DatabaseIntrospection(BaseDatabaseIntrospection):
             return set()
         columns_by_name = {_identifier_key(column): column for column in columns}
         result: set[str] = set()
-        statements = sqlparse.parse(table_sql)
+        statements = cast(tuple[SQLStatement, ...], sqlparse.parse(table_sql))
         if not statements:
             return result
-        tokens = [
-            token
-            for token in statements[0].flatten()  # type: ignore[no-untyped-call]
-            if not token.is_whitespace
-        ]
+        tokens = [token for token in statements[0].flatten() if not token.is_whitespace]
         for index, token in enumerate(tokens[:-3]):
             if token.value.casefold() != "json_valid":
                 continue

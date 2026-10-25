@@ -1,13 +1,14 @@
 """SQL parameter and identifier safety at the backend boundary."""
 
-from typing import Any
-
 import pytest
 from django.db import DatabaseError, connection
+from pytest_django.plugin import DjangoDbBlocker
 
 
 @pytest.mark.core
-def test_bound_values_and_literal_percent_are_never_sql_text(django_db_blocker: Any) -> None:
+def test_bound_values_and_literal_percent_are_never_sql_text(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     payload = "value'); DROP TABLE security_values; -- 100%"
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute("CREATE TABLE security_values (value text)")
@@ -22,7 +23,7 @@ def test_bound_values_and_literal_percent_are_never_sql_text(django_db_blocker: 
 
 
 @pytest.mark.core
-def test_named_parameters_and_executemany_remain_bound(django_db_blocker: Any) -> None:
+def test_named_parameters_and_executemany_remain_bound(django_db_blocker: DjangoDbBlocker) -> None:
     values = ["plain", "x'); DELETE FROM security_named; --", "100%_literal"]
     table_name = "security_named_%s_%%"
     column_name = "value_%(value)s_%s_%%"
@@ -44,7 +45,9 @@ def test_named_parameters_and_executemany_remain_bound(django_db_blocker: Any) -
 
 
 @pytest.mark.core
-def test_regexp_input_is_bound_and_fts_is_not_an_exposed_surface(django_db_blocker: Any) -> None:
+def test_regexp_input_is_bound_and_fts_is_not_an_exposed_surface(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     injection_shaped_pattern = r"^safe'; DROP TABLE security_regex; --$"
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute("CREATE TABLE security_regex (value text)")
@@ -64,7 +67,9 @@ def test_regexp_input_is_bound_and_fts_is_not_an_exposed_surface(django_db_block
 
 
 @pytest.mark.core
-def test_metadata_identifiers_are_quoted_as_single_identifiers(django_db_blocker: Any) -> None:
+def test_metadata_identifiers_are_quoted_as_single_identifiers(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     # Keep the corpus casefold-stable because pyturso 0.7.0 normalizes quoted
     # identifiers; that separate driver boundary is documented and probed by
     # the property suite.

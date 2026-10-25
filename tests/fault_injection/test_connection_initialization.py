@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 import turso
 from django.db import DatabaseError
@@ -11,7 +9,7 @@ from django.db import DatabaseError
 from django_pyturso.base import DatabaseWrapper
 
 
-def wrapper_settings() -> dict[str, Any]:
+def wrapper_settings() -> dict[str, object]:
     return {
         "ENGINE": "django_pyturso",
         "NAME": ":memory:",

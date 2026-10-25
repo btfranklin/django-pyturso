@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 import pytest
 from django.db import DatabaseError, transaction
+from django.db.backends.utils import CursorWrapper
 from django.db.transaction import TransactionManagementError
+from pytest_django.plugin import DjangoDbBlocker
 
 from tests.core.transactions.test_state_machine import registered_wrapper
+from tests.support import physical_connection
 
 pytestmark = pytest.mark.core
 FETCH_METHODS = ["fetchone", "fetchmany", "fetchmany_size", "fetchall", "next", "iterate"]
@@ -21,19 +23,25 @@ MODES = [
 
 
 @pytest.fixture(autouse=True)
-def unblock_database_access(django_db_blocker: Any) -> Iterator[None]:
+def unblock_database_access(django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     with django_db_blocker.unblock():
         yield
 
 
-def fetch(cursor: Any, method: str) -> Any:
+def fetch(cursor: CursorWrapper, method: str) -> object:
     if method == "fetchmany_size":
         return cursor.fetchmany(1)
     if method == "next":
         return next(cursor.cursor)
     if method == "iterate":
         return list(cursor)
-    return getattr(cursor, method)()
+    if method == "fetchone":
+        return cursor.fetchone()
+    if method == "fetchmany":
+        return cursor.fetchmany()
+    if method == "fetchall":
+        return cursor.fetchall()
+    raise ValueError(f"Unknown fetch method: {method}")
 
 
 @pytest.mark.parametrize("options", MODES, ids=["wal", "mvcc"])
@@ -48,11 +56,11 @@ def test_returning_fetch_preserves_manual_transaction_result(
         with wrapper.cursor() as pending:
             pending.execute("INSERT INTO t VALUES(1) RETURNING id")
             getattr(wrapper, boundary)()
-            assert not wrapper.connection.in_transaction
+            assert not physical_connection(wrapper).in_transaction
 
             result = fetch(pending, method)
             assert result == ((1,) if method in {"fetchone", "next"} else [(1,)])
-            transaction_active = wrapper.connection.in_transaction
+            transaction_active = physical_connection(wrapper).in_transaction
 
         wrapper.rollback()
         wrapper.set_autocommit(True)
@@ -71,9 +79,10 @@ def test_returning_fetch_rejects_lost_atomic_transaction(
     options = MODES[1]
     path = tmp_path / "lost.db"
     callbacks: list[str] = []
-    with registered_wrapper(NAME=path, OPTIONS=options) as a, registered_wrapper(
-        NAME=path, OPTIONS=options
-    ) as b:
+    with (
+        registered_wrapper(NAME=path, OPTIONS=options) as a,
+        registered_wrapper(NAME=path, OPTIONS=options) as b,
+    ):
         a.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY,n INTEGER)")
         a.cursor().execute("INSERT INTO t VALUES(1,0)")
         if manual:
@@ -89,13 +98,13 @@ def test_returning_fetch_rejects_lost_atomic_transaction(
                         a.cursor().execute("UPDATE t SET n=1 WHERE id=1")
                     with pytest.raises(DatabaseError, match="conflict"):
                         b.cursor().execute("UPDATE t SET n=2 WHERE id=1")
-                    assert not b.connection.in_transaction
+                    assert not physical_connection(b).in_transaction
                     with pytest.raises(TransactionManagementError):
                         fetch(pending, method)
                     assert b.needs_rollback
                     raise ValueError("abort outer block")
         if manual:
-            assert not b.connection.in_transaction
+            assert not physical_connection(b).in_transaction
             b.rollback()
             b.set_autocommit(True)
         assert callbacks == []
@@ -114,7 +123,7 @@ def test_fetch_rejects_django_broken_transaction(
                 with pytest.raises(ValueError):
                     with transaction.atomic(using=wrapper.alias, savepoint=False):
                         raise ValueError("abort inner block")
-                assert wrapper.connection.in_transaction
+                assert physical_connection(wrapper).in_transaction
                 assert wrapper.needs_rollback
                 with pytest.raises(TransactionManagementError):
                     fetch(pending, method)
@@ -145,9 +154,10 @@ def test_caught_atomic_conflict_discards_callbacks_without_more_queries(
     options = MODES[1]
     path = tmp_path / "callbacks.db"
     callbacks: list[str] = []
-    with registered_wrapper(NAME=path, OPTIONS=options) as a, registered_wrapper(
-        NAME=path, OPTIONS=options
-    ) as b:
+    with (
+        registered_wrapper(NAME=path, OPTIONS=options) as a,
+        registered_wrapper(NAME=path, OPTIONS=options) as b,
+    ):
         a.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY,n INTEGER)")
         a.cursor().execute("INSERT INTO t VALUES(1,0)")
         if manual:
@@ -172,9 +182,10 @@ def test_nested_atomic_conflict_does_not_restart_engine_during_cleanup(
 ) -> None:
     path = tmp_path / "nested.db"
     callbacks: list[str] = []
-    with registered_wrapper(NAME=path, OPTIONS=MODES[1]) as a, registered_wrapper(
-        NAME=path, OPTIONS=MODES[1]
-    ) as b:
+    with (
+        registered_wrapper(NAME=path, OPTIONS=MODES[1]) as a,
+        registered_wrapper(NAME=path, OPTIONS=MODES[1]) as b,
+    ):
         a.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY,n INTEGER)")
         a.cursor().execute("INSERT INTO t VALUES(1,0)")
         if manual:
@@ -188,9 +199,9 @@ def test_nested_atomic_conflict_does_not_restart_engine_during_cleanup(
                     a.cursor().execute("UPDATE t SET n=1 WHERE id=1")
                 with pytest.raises(DatabaseError, match="conflict"):
                     b.cursor().execute("UPDATE t SET n=2 WHERE id=1")
-            assert not b.connection.in_transaction
+            assert not physical_connection(b).in_transaction
             assert b.needs_rollback
-        assert not b.connection.in_transaction
+        assert not physical_connection(b).in_transaction
         if manual:
             b.commit()
             b.set_autocommit(True)
@@ -206,9 +217,10 @@ def test_returning_execute_conflict_marks_atomic_transaction_for_rollback(
 ) -> None:
     path = tmp_path / "fetch_conflict.db"
     callbacks: list[str] = []
-    with registered_wrapper(NAME=path, OPTIONS=MODES[1]) as a, registered_wrapper(
-        NAME=path, OPTIONS=MODES[1]
-    ) as b:
+    with (
+        registered_wrapper(NAME=path, OPTIONS=MODES[1]) as a,
+        registered_wrapper(NAME=path, OPTIONS=MODES[1]) as b,
+    ):
         a.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY,n INTEGER)")
         a.cursor().execute("INSERT INTO t VALUES(1,0)")
         with transaction.atomic(using=b.alias):
@@ -219,7 +231,7 @@ def test_returning_execute_conflict_marks_atomic_transaction_for_rollback(
                     a.cursor().execute("UPDATE t SET n=1 WHERE id=1")
                 with pytest.raises(DatabaseError, match="conflict"):
                     pending.execute("UPDATE t SET n=2 WHERE id=1 RETURNING id")
-                assert not b.connection.in_transaction
+                assert not physical_connection(b).in_transaction
                 assert b.needs_rollback
                 with pytest.raises(TransactionManagementError):
                     fetch(pending, method)
@@ -242,7 +254,7 @@ def test_returning_fetch_cannot_move_write_to_later_manual_atomic(
             with pytest.raises(ValueError):
                 with transaction.atomic(using=wrapper.alias, savepoint=savepoint):
                     assert pending.fetchall() == [(1,)]
-                    assert wrapper.connection.in_transaction
+                    assert physical_connection(wrapper).in_transaction
                     raise ValueError("abort manual atomic")
         wrapper.rollback()
         wrapper.set_autocommit(True)
@@ -268,4 +280,4 @@ def test_autocommit_fetch_preserves_reads_and_returning_writes(
             assert fetch(cursor, method) == result
             cursor.fetchall()
         assert wrapper.get_autocommit()
-        assert not wrapper.connection.in_transaction
+        assert not physical_connection(wrapper).in_transaction

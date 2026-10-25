@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from django.db import connection, models
 from django.test.utils import isolate_apps
@@ -19,7 +17,7 @@ pytestmark = [pytest.mark.core, pytest.mark.django_db]
 def test_regex_lookups_execute_native_patterns(lookup: str, expected: list[str]) -> None:
     class Record(models.Model):
         value = models.CharField(max_length=20)
-        objects: Any = models.Manager()
+        objects: models.Manager[Record] = models.Manager()
 
         class Meta:
             app_label = "regex_tests"
@@ -31,11 +29,14 @@ def test_regex_lookups_execute_native_patterns(lookup: str, expected: list[str])
         Record.objects.bulk_create(
             [Record(value=value) for value in ["aa", "AA", "ab", "a1", "baa"]]
         )
-        assert list(
-            Record.objects.filter(**{f"value__{lookup}": r"^a(a|b)$"})
-            .order_by("value")
-            .values_list("value", flat=True)
-        ) == expected
+        assert (
+            list(
+                Record.objects.filter(**{f"value__{lookup}": r"^a(a|b)$"})
+                .order_by("value")
+                .values_list("value", flat=True)
+            )
+            == expected
+        )
     finally:
         with connection.cursor() as cursor:
             cursor.execute("DROP TABLE regex_values")

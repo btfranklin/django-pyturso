@@ -1,16 +1,16 @@
 """Create and remove real tables for each selected Django regression."""
 
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
 from django.db import connection
+from pytest_django.plugin import DjangoDbBlocker
 
 from tests.django_regressions.models import NamedRank, Record
 
 
 @pytest.fixture(autouse=True)
-def regression_tables(django_db_blocker: Any) -> Iterator[None]:
+def regression_tables(django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     with django_db_blocker.unblock():
         assert connection.settings_dict["ENGINE"] == "django_pyturso"
         with connection.schema_editor() as editor:

@@ -6,26 +6,28 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from itertools import count
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import pytest
 import turso
 from django.db import connections, transaction
 from django.db.transaction import TransactionManagementError
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper
+from tests.support import physical_connection
 
 ALIASES = count()
 
 
 @pytest.fixture(autouse=True)
-def unblock_database_access(django_db_blocker: Any) -> Iterator[None]:
+def unblock_database_access(django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     with django_db_blocker.unblock():
         yield
 
 
-def wrapper_settings(**overrides: Any) -> dict[str, Any]:
-    values: dict[str, Any] = {
+def wrapper_settings(**overrides: object) -> dict[str, object]:
+    values: dict[str, object] = {
         "ENGINE": "django_pyturso",
         "NAME": ":memory:",
         "OPTIONS": {},
@@ -44,7 +46,7 @@ def wrapper_settings(**overrides: Any) -> dict[str, Any]:
 
 
 @contextmanager
-def registered_wrapper(**settings: Any) -> Iterator[DatabaseWrapper]:
+def registered_wrapper(**settings: object) -> Iterator[DatabaseWrapper]:
     alias = f"phase_0c_{next(ALIASES)}"
     wrapper = DatabaseWrapper(wrapper_settings(**settings), alias)
     connections[alias] = wrapper
@@ -56,23 +58,21 @@ def registered_wrapper(**settings: Any) -> Iterator[DatabaseWrapper]:
         del connections[alias]
 
 
-def rows(wrapper: DatabaseWrapper) -> list[tuple[Any, ...]]:
+def rows(wrapper: DatabaseWrapper) -> list[tuple[object, ...]]:
     with wrapper.cursor() as cursor:
         cursor.execute("SELECT value FROM state_probe ORDER BY id")
-        return cast(list[tuple[Any, ...]], cursor.fetchall())
+        return cast(list[tuple[object, ...]], cursor.fetchall())
 
 
 @pytest.mark.core
 def test_manual_autocommit_rearms_after_commit_and_rollback_for_cte_writes() -> None:
     with registered_wrapper() as wrapper:
         with wrapper.cursor() as cursor:
-            cursor.execute(
-                "CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)"
-            )
+            cursor.execute("CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)")
 
         wrapper.set_autocommit(False)
-        assert wrapper.autocommit is False
-        assert wrapper.connection.in_transaction is True
+        assert cast(object, wrapper.autocommit) is False
+        assert physical_connection(wrapper).in_transaction is True
 
         with wrapper.cursor() as cursor:
             cursor.execute(
@@ -84,22 +84,22 @@ def test_manual_autocommit_rearms_after_commit_and_rollback_for_cte_writes() -> 
             wrapper.set_autocommit(True)
 
         wrapper.commit()
-        assert wrapper.autocommit is False
-        assert wrapper.connection.in_transaction is False
+        assert cast(object, wrapper.autocommit) is False
+        assert physical_connection(wrapper).in_transaction is False
 
         with wrapper.cursor() as cursor:
             cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("rolled-back",))
-        assert wrapper.connection.in_transaction is True
+        assert physical_connection(wrapper).in_transaction is True
         wrapper.rollback()
-        assert wrapper.connection.in_transaction is False
+        assert physical_connection(wrapper).in_transaction is False
 
         with wrapper.cursor() as cursor:
             cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("rearmed",))
         wrapper.commit()
         wrapper.set_autocommit(True)
 
-        assert wrapper.autocommit is True
-        assert wrapper.connection.in_transaction is False
+        assert cast(object, wrapper.autocommit) is True
+        assert physical_connection(wrapper).in_transaction is False
         assert rows(wrapper) == [("committed",), ("rearmed",)]
 
 
@@ -108,36 +108,28 @@ def test_outer_and_nested_atomic_manage_savepoints_and_on_commit_callbacks() -> 
     callbacks: list[str] = []
     with registered_wrapper() as wrapper:
         with wrapper.cursor() as cursor:
-            cursor.execute(
-                "CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)"
-            )
+            cursor.execute("CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)")
 
         with transaction.atomic(using=wrapper.alias):
             with wrapper.cursor() as cursor:
                 cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("outer",))
-            transaction.on_commit(
-                lambda: callbacks.append("outer"), using=wrapper.alias
-            )
+            transaction.on_commit(lambda: callbacks.append("outer"), using=wrapper.alias)
             try:
                 with transaction.atomic(using=wrapper.alias):
                     with wrapper.cursor() as cursor:
-                        cursor.execute(
-                            "INSERT INTO state_probe(value) VALUES (%s)", ("inner",)
-                        )
-                    transaction.on_commit(
-                        lambda: callbacks.append("inner"), using=wrapper.alias
-                    )
+                        cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("inner",))
+                    transaction.on_commit(lambda: callbacks.append("inner"), using=wrapper.alias)
                     raise ValueError("roll back the savepoint")
             except ValueError:
                 pass
             assert callbacks == []
-            assert wrapper.in_atomic_block is True
-            assert wrapper.connection.in_transaction is True
+            assert cast(object, wrapper.in_atomic_block) is True
+            assert physical_connection(wrapper).in_transaction is True
 
         assert callbacks == ["outer"]
-        assert wrapper.autocommit is True
-        assert wrapper.in_atomic_block is False
-        assert wrapper.connection.in_transaction is False
+        assert cast(object, wrapper.autocommit) is True
+        assert cast(object, wrapper.in_atomic_block) is False
+        assert physical_connection(wrapper).in_transaction is False
         assert rows(wrapper) == [("outer",)]
 
 
@@ -145,24 +137,22 @@ def test_outer_and_nested_atomic_manage_savepoints_and_on_commit_callbacks() -> 
 def test_atomic_after_manual_commit_or_rollback_lazily_rearms_transaction() -> None:
     with registered_wrapper() as wrapper:
         with wrapper.cursor() as cursor:
-            cursor.execute(
-                "CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)"
-            )
+            cursor.execute("CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)")
         wrapper.set_autocommit(False)
 
         wrapper.commit()
-        assert wrapper.connection.in_transaction is False
+        assert physical_connection(wrapper).in_transaction is False
         with transaction.atomic(using=wrapper.alias):
             assert wrapper.commit_on_exit is False
-            assert wrapper.connection.in_transaction is True
+            assert physical_connection(wrapper).in_transaction is True
             with wrapper.cursor() as cursor:
                 cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("first",))
         wrapper.commit()
 
         wrapper.rollback()
-        assert wrapper.connection.in_transaction is False
+        assert physical_connection(wrapper).in_transaction is False
         with transaction.atomic(using=wrapper.alias):
-            assert wrapper.connection.in_transaction is True
+            assert physical_connection(wrapper).in_transaction is True
             with wrapper.cursor() as cursor:
                 cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("second",))
         wrapper.commit()
@@ -193,23 +183,21 @@ def test_atomic_rolls_back_ddl_and_dml_together() -> None:
 def test_memory_close_rolls_back_active_work_but_preserves_database() -> None:
     with registered_wrapper() as wrapper:
         with wrapper.cursor() as cursor:
-            cursor.execute(
-                "CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)"
-            )
-        physical = wrapper.connection
+            cursor.execute("CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)")
+        physical = physical_connection(wrapper)
         wrapper.set_autocommit(False)
         with wrapper.cursor() as cursor:
             cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("lost",))
-        wrapper.run_on_commit = cast(Any, [(set(), lambda: None, False)])
+        wrapper.run_on_commit = [(set(), lambda: None, False)]
 
         wrapper.close()
 
         assert wrapper.connection is physical
-        assert wrapper.connection.in_transaction is False
-        assert wrapper.autocommit is False
+        assert physical_connection(wrapper).in_transaction is False
+        assert cast(object, wrapper.autocommit) is False
         assert wrapper.run_on_commit == []
         assert rows(wrapper) == []
-        assert wrapper.connection.in_transaction is True
+        assert physical_connection(wrapper).in_transaction is True
         wrapper.rollback()
         wrapper.set_autocommit(True)
 
@@ -218,21 +206,19 @@ def test_memory_close_rolls_back_active_work_but_preserves_database() -> None:
 def test_file_close_rolls_back_active_work_and_detaches_connection(tmp_path: Path) -> None:
     with registered_wrapper(NAME=tmp_path / "state.db") as wrapper:
         with wrapper.cursor() as cursor:
-            cursor.execute(
-                "CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)"
-            )
-        physical = wrapper.connection
+            cursor.execute("CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)")
+        physical = physical_connection(wrapper)
         wrapper.set_autocommit(False)
         with wrapper.cursor() as cursor:
             cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("lost",))
 
         wrapper.close()
 
-        assert wrapper.connection is None
+        assert cast(object, wrapper.connection) is None
         with pytest.raises(turso.DatabaseError, match="Connection closed"):
             physical.execute("SELECT 1").fetchone()
         assert rows(wrapper) == []
-        assert wrapper.autocommit is True
+        assert cast(object, wrapper.autocommit) is True
 
 
 @pytest.mark.core
@@ -240,27 +226,22 @@ def test_close_inside_atomic_rolls_back_and_forcibly_loses_memory_database() -> 
     callbacks: list[str] = []
     with registered_wrapper() as wrapper:
         with wrapper.cursor() as cursor:
-            cursor.execute(
-                "CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)"
-            )
+            cursor.execute("CREATE TABLE state_probe (id INTEGER PRIMARY KEY, value TEXT)")
 
         with transaction.atomic(using=wrapper.alias):
-            transaction.on_commit(
-                lambda: callbacks.append("unexpected"), using=wrapper.alias
-            )
+            transaction.on_commit(lambda: callbacks.append("unexpected"), using=wrapper.alias)
             with wrapper.cursor() as cursor:
                 cursor.execute("INSERT INTO state_probe(value) VALUES (%s)", ("lost",))
             wrapper.close()
             assert wrapper.closed_in_transaction is True
             assert wrapper.needs_rollback is True
-            assert wrapper.connection.in_transaction is False
+            assert physical_connection(wrapper).in_transaction is False
 
-        assert wrapper.connection is None
+        assert cast(object, wrapper.connection) is None
         assert callbacks == []
         with wrapper.cursor() as cursor:
             cursor.execute(
-                "SELECT COUNT(*) FROM sqlite_master "
-                "WHERE type = 'table' AND name = 'state_probe'"
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'state_probe'"
             )
             assert cursor.fetchone() == (0,)
 
@@ -269,14 +250,14 @@ def test_close_inside_atomic_rolls_back_and_forcibly_loses_memory_database() -> 
 def test_memory_health_failure_forces_disposal(monkeypatch: pytest.MonkeyPatch) -> None:
     with registered_wrapper(CONN_HEALTH_CHECKS=True) as wrapper:
         wrapper.cursor().close()
-        physical = wrapper.connection
+        physical = physical_connection(wrapper)
         wrapper.health_check_enabled = True
         wrapper.health_check_done = False
         monkeypatch.setattr(wrapper, "is_usable", lambda: False)
 
         wrapper.close_if_health_check_failed()
 
-        assert wrapper.connection is None
+        assert cast(object, wrapper.connection) is None
         with pytest.raises(turso.DatabaseError, match="Connection closed"):
             physical.execute("SELECT 1").fetchone()
 
@@ -285,7 +266,7 @@ def test_memory_health_failure_forces_disposal(monkeypatch: pytest.MonkeyPatch) 
 def test_healthy_memory_age_expiry_preserves_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     with registered_wrapper(CONN_MAX_AGE=0) as wrapper:
         wrapper.cursor().close()
-        physical = wrapper.connection
+        physical = physical_connection(wrapper)
         assert wrapper.close_at is not None
         monkeypatch.setattr("django_pyturso.base.time.monotonic", lambda: wrapper.close_at)
 
@@ -299,27 +280,27 @@ def test_healthy_memory_age_expiry_preserves_connection(monkeypatch: pytest.Monk
 def test_memory_autocommit_mismatch_rolls_back_and_forces_disposal() -> None:
     with registered_wrapper() as wrapper:
         wrapper.cursor().close()
-        physical = wrapper.connection
+        physical = physical_connection(wrapper)
         wrapper.set_autocommit(False)
-        assert physical.in_transaction is True
+        assert cast(object, physical.in_transaction) is True
 
         wrapper.close_if_unusable_or_obsolete()
 
-        assert physical.in_transaction is False
-        assert wrapper.connection is None
+        assert cast(object, physical.in_transaction) is False
+        assert cast(object, wrapper.connection) is None
 
 
 @pytest.mark.core
 def test_fatal_memory_error_forces_disposal(monkeypatch: pytest.MonkeyPatch) -> None:
     with registered_wrapper() as wrapper:
         wrapper.cursor().close()
-        physical = wrapper.connection
+        physical = physical_connection(wrapper)
         wrapper.errors_occurred = True
         monkeypatch.setattr(wrapper, "is_usable", lambda: False)
 
         wrapper.close_if_unusable_or_obsolete()
 
-        assert wrapper.connection is None
+        assert cast(object, wrapper.connection) is None
         with pytest.raises(turso.DatabaseError, match="Connection closed"):
             physical.execute("SELECT 1").fetchone()
 
@@ -328,15 +309,15 @@ def test_fatal_memory_error_forces_disposal(monkeypatch: pytest.MonkeyPatch) -> 
 def test_engine_state_drift_rolls_back_and_forces_disposal() -> None:
     with registered_wrapper() as wrapper:
         wrapper.cursor().close()
-        physical = wrapper.connection
+        physical = physical_connection(wrapper)
         physical.execute("BEGIN")
-        assert wrapper.autocommit is True
-        assert physical.in_transaction is True
+        assert cast(object, wrapper.autocommit) is True
+        assert cast(object, physical.in_transaction) is True
 
         wrapper.close_if_unusable_or_obsolete()
 
-        assert physical.in_transaction is False
-        assert wrapper.connection is None
+        assert cast(object, physical.in_transaction) is False
+        assert cast(object, wrapper.connection) is None
 
 
 class FailingRollbackConnection:
@@ -358,13 +339,13 @@ class FailingRollbackConnection:
 def test_rollback_failure_forces_disposal_and_clears_callbacks() -> None:
     wrapper = DatabaseWrapper(wrapper_settings(), "rollback_failure")
     physical = FailingRollbackConnection()
-    wrapper.connection = physical
+    wrapper.connection = cast(turso.Connection, physical)
     wrapper.autocommit = False
-    wrapper.run_on_commit = cast(Any, [(set(), lambda: None, False)])
+    wrapper.run_on_commit = [(set(), lambda: None, False)]
 
     with pytest.raises(turso.OperationalError, match="injected rollback failure"):
         wrapper.close()
 
     assert physical.closed is True
-    assert wrapper.connection is None
+    assert cast(object, wrapper.connection) is None
     assert wrapper.run_on_commit == []

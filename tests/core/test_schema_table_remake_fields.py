@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,14 +15,17 @@ from tests.schema_support import hashable_namespace, remake_editor
 pytestmark = pytest.mark.core
 
 
-def _created_model(editor: DatabaseSchemaEditor) -> Any:
+def _created_model(editor: DatabaseSchemaEditor) -> type[models.Model]:
     create_model = editor.create_model
     assert isinstance(create_model, MagicMock)
-    return create_model.call_args.args[0]
+    model: object = create_model.call_args.args[0]
+    assert isinstance(model, type) and issubclass(model, models.Model)
+    return model
 
 
 def _first_executed_sql(editor: DatabaseSchemaEditor) -> str:
-    execute: Any = editor.execute
+    execute = editor.execute
+    assert isinstance(execute, MagicMock)
     return str(execute.call_args_list[0].args[0])
 
 
@@ -161,8 +163,10 @@ def test_remake_new_primary_key_demotes_explicit_source_key(
 
     remade = _created_model(editor)
     assert remade._meta.pk.name == "replacement_id"
-    assert remade._meta.get_field("old_key").primary_key is False
-    assert remade._meta.get_field("old_key").column == "old_key"
+    remade_old_key = remade._meta.get_field("old_key")
+    assert isinstance(remade_old_key, models.Field)
+    assert remade_old_key.primary_key is False
+    assert remade_old_key.column == "old_key"
     assert original_pk.primary_key is True
     assert original_pk.model is Record
 
@@ -190,6 +194,7 @@ def test_remake_altered_primary_key_remains_the_primary_key(
     remade = _created_model(editor)
     assert remade._meta.pk.name == "key"
     assert isinstance(remade._meta.pk, models.BigIntegerField)
+    assert isinstance(old_field, models.Field)
     assert old_field.primary_key is True
     assert old_field.model is Record
 
@@ -218,7 +223,9 @@ def test_remake_altering_another_field_to_primary_key_demotes_the_old_key(
     remade = _created_model(editor)
     assert remade._meta.pk.name == "replacement"
     assert isinstance(remade._meta.pk, models.BigIntegerField)
-    assert remade._meta.get_field("old_key").primary_key is False
+    remade_old_key = remade._meta.get_field("old_key")
+    assert isinstance(remade_old_key, models.Field)
+    assert remade_old_key.primary_key is False
     assert original_pk.primary_key is True
     assert original_pk.model is Record
 

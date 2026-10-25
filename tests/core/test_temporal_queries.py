@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Iterator
-from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -23,15 +22,17 @@ from django.db.models.functions import (
     TruncWeek,
     TruncYear,
 )
+from django.db.models.functions.datetime import TruncBase
 from django.test import override_settings
 from django.test.utils import isolate_apps
+from pytest_django.plugin import DjangoDbBlocker
 
 pytestmark = pytest.mark.core
 MOMENT = datetime.datetime(2026, 7, 13, 18, 42, 31, 123456, tzinfo=datetime.UTC)
 
 
 @pytest.fixture
-def temporal_rows(django_db_blocker: Any) -> Iterator[Any]:
+def temporal_rows(django_db_blocker: DjangoDbBlocker) -> Iterator[type[models.Model]]:
     with django_db_blocker.unblock(), isolate_apps():
 
         class TemporalRow(models.Model):
@@ -91,25 +92,35 @@ def temporal_rows(django_db_blocker: Any) -> Iterator[Any]:
     ],
 )
 def test_nullable_temporal_queries(
-    temporal_rows: Any, field_name: str, function: Any, expected: Any
+    temporal_rows: type[models.Model],
+    field_name: str,
+    function: type[TruncBase],
+    expected: datetime.date | datetime.time,
 ) -> None:
-    rows = temporal_rows.objects.order_by("pk")
+    rows = temporal_rows._default_manager.order_by("pk")
     assert list(rows.annotate(result=function(field_name)).values_list("result", flat=True)) == [
         None,
         expected,
     ]
 
     field = temporal_rows._meta.get_field(field_name)
+    assert isinstance(field, models.Field)
     sample = getattr(rows.last(), field_name)
     for value, result in [(None, None), (sample, expected)]:
         expression = function(Value(value, output_field=field))
         assert rows.annotate(result=expression).values_list("result", flat=True).first() == result
 
 
-def test_nullable_truncation_still_rejects_named_timezone(temporal_rows: Any) -> None:
+def test_nullable_truncation_still_rejects_named_timezone(
+    temporal_rows: type[models.Model],
+) -> None:
     expression = TruncHour("datetime_value", tzinfo=ZoneInfo("America/Phoenix"))
     with pytest.raises(NotSupportedError, match="without timezone conversion"):
-        list(temporal_rows.objects.annotate(result=expression).values_list("result", flat=True))
+        list(
+            temporal_rows._default_manager.annotate(result=expression).values_list(
+                "result", flat=True
+            )
+        )
 
 
 @pytest.mark.parametrize("debug", [False, True])
@@ -122,14 +133,18 @@ def test_nullable_truncation_still_rejects_named_timezone(temporal_rows: Any) ->
     ],
 )
 def test_time_output_truncation_accepts_datetime_inputs(
-    temporal_rows: Any, debug: bool, function: Any, expected: datetime.time
+    temporal_rows: type[models.Model],
+    debug: bool,
+    function: type[TruncBase],
+    expected: datetime.time,
 ) -> None:
     with override_settings(DEBUG=debug):
-        rows = temporal_rows.objects.order_by("pk")
+        rows = temporal_rows._default_manager.order_by("pk")
         for field_name in ("datetime_value", "time_value"):
             expression = function(field_name, output_field=models.TimeField())
             assert list(rows.annotate(result=expression).values_list("result", flat=True)) == [
-                None, expected
+                None,
+                expected,
             ]
 
         for value, field in (
@@ -146,33 +161,41 @@ def test_time_output_truncation_accepts_datetime_inputs(
 @pytest.mark.parametrize("aggregate", [Sum, Avg])
 @pytest.mark.parametrize("field_name", ["date_value", "datetime_value", "time_value"])
 def test_temporal_aggregates_reject_numeric_output(
-    temporal_rows: Any, aggregate: Any, field_name: str
+    temporal_rows: type[models.Model], aggregate: type[Sum] | type[Avg], field_name: str
 ) -> None:
     expression = aggregate(field_name, output_field=FloatField())
     with pytest.raises(NotSupportedError, match="date/time fields"):
-        temporal_rows.objects.aggregate(result=expression)
+        temporal_rows._default_manager.aggregate(result=expression)
 
 
 @pytest.mark.parametrize("aggregate", [Sum, Avg])
-def test_numeric_aggregates_remain_supported(temporal_rows: Any, aggregate: Any) -> None:
-    assert temporal_rows.objects.aggregate(result=aggregate("numeric_value"))["result"] == 4
+def test_numeric_aggregates_remain_supported(
+    temporal_rows: type[models.Model], aggregate: type[Sum] | type[Avg]
+) -> None:
+    assert (
+        temporal_rows._default_manager.aggregate(result=aggregate("numeric_value"))["result"] == 4
+    )
 
 
 @pytest.mark.parametrize("function", [Extract, TruncHour, TruncWeek, TruncDate, TruncTime])
 def test_utc_queries_reject_conversion_from_a_named_database_timezone(
-    temporal_rows: Any, monkeypatch: pytest.MonkeyPatch, function: Any
+    temporal_rows: type[models.Model],
+    monkeypatch: pytest.MonkeyPatch,
+    function: type[Extract] | type[TruncBase],
 ) -> None:
     monkeypatch.setitem(connection.settings_dict, "TIME_ZONE", "America/Phoenix")
     monkeypatch.delattr(connection, "timezone", raising=False)
     monkeypatch.delattr(connection, "timezone_name", raising=False)
     moment = MOMENT.replace(hour=2)
-    row = temporal_rows.objects.filter(datetime_value__isnull=False)
+    row = temporal_rows._default_manager.filter(datetime_value__isnull=False)
     row.update(datetime_value=moment)
-    assert row.get().datetime_value == moment
-    assert row.annotate(result=TruncQuarter("date_value")).get().result == datetime.date(
-        2026, 7, 1
+    assert getattr(row.get(), "datetime_value") == moment
+    assert getattr(
+        row.annotate(result=TruncQuarter("date_value")).get(), "result"
+    ) == datetime.date(2026, 7, 1)
+    assert getattr(row.annotate(result=TruncHour("time_value")).get(), "result") == datetime.time(
+        18
     )
-    assert row.annotate(result=TruncHour("time_value")).get().result == datetime.time(18)
 
     expression = (
         function("datetime_value", lookup_name="hour")
@@ -187,17 +210,20 @@ def test_utc_queries_reject_conversion_from_a_named_database_timezone(
 
 @pytest.mark.parametrize("microsecond", [0, 1, 100000, 123456, 999999])
 def test_time_lookup_uses_python_microsecond_precision(
-    temporal_rows: Any, microsecond: int
+    temporal_rows: type[models.Model], microsecond: int
 ) -> None:
     moment = MOMENT.replace(microsecond=microsecond)
-    temporal_rows.objects.filter(datetime_value__isnull=False).update(
+    temporal_rows._default_manager.filter(datetime_value__isnull=False).update(
         datetime_value=moment, time_value=moment.time()
     )
     for rhs in [moment.time(), F("time_value")]:
         for lookup, expected_count in [("exact", 1), ("gt", 0), ("gte", 1), ("lt", 0), ("lte", 1)]:
-            assert temporal_rows.objects.filter(
-                **{f"datetime_value__time__{lookup}": rhs}
-            ).count() == expected_count
+            assert (
+                temporal_rows._default_manager.filter(
+                    **{f"datetime_value__time__{lookup}": rhs}
+                ).count()
+                == expected_count
+            )
 
 
 @pytest.mark.parametrize("debug", [False, True])
@@ -220,11 +246,11 @@ def test_time_lookup_uses_python_microsecond_precision(
     ],
 )
 def test_temporal_extraction_with_query_logging(
-    temporal_rows: Any, debug: bool, field_name: str, lookup: str, expected: int
+    temporal_rows: type[models.Model], debug: bool, field_name: str, lookup: str, expected: int
 ) -> None:
     with override_settings(DEBUG=debug):
         query = (
-            temporal_rows.objects.filter(pk__gte=0)
+            temporal_rows._default_manager.filter(pk__gte=0)
             .order_by("pk")
             .annotate(result=Extract(field_name, lookup_name=lookup))
         )

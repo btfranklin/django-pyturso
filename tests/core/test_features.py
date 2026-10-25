@@ -8,6 +8,7 @@ import pytest
 
 from django_pyturso.base import DatabaseWrapper
 from django_pyturso.features import DatabaseFeatures
+from tests.schema_support import model_double
 from tests.support import wrapper_settings
 
 pytestmark = pytest.mark.core
@@ -23,10 +24,10 @@ def test_database_capability_methods_apply_fixed_declarations() -> None:
 
     managed = SimpleNamespace(_meta=SimpleNamespace(managed=True))
     unmanaged = SimpleNamespace(_meta=SimpleNamespace(managed=False))
-    assert not features.allows_group_by_selected_pks_on_model(managed)
+    assert not features.allows_group_by_selected_pks_on_model(model_double(managed))
     features.allows_group_by_selected_pks = True
-    assert features.allows_group_by_selected_pks_on_model(managed)
-    assert not features.allows_group_by_selected_pks_on_model(unmanaged)
+    assert features.allows_group_by_selected_pks_on_model(model_double(managed))
+    assert not features.allows_group_by_selected_pks_on_model(model_double(unmanaged))
 
 
 def test_high_risk_conservative_values_match_the_v1_contract() -> None:

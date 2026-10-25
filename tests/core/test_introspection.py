@@ -4,24 +4,31 @@ from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import cast
 
 import pytest
 import sqlparse
 from django.core.management import call_command
 from django.core.management.color import no_style
 from django.db import DatabaseError, connection, models
+from django.db.backends.utils import CursorWrapper
 from django.test.utils import isolate_apps
+from pytest_django.plugin import DjangoDbBlocker
 
+from django_pyturso._typing import SQLToken
 from django_pyturso.base import DatabaseWrapper
-from django_pyturso.introspection import DatabaseIntrospection, FlexibleFieldLookupDict
+from django_pyturso.introspection import (
+    DatabaseIntrospection,
+    FlexibleFieldLookupDict,
+    ForeignKeyRow,
+)
 from tests.core.transactions.test_state_machine import registered_wrapper
 from tests.support import wrapper_settings
 
 
 @pytest.mark.core
 def test_table_description_type_affinity_and_composite_primary_key(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
@@ -91,30 +98,25 @@ def test_table_description_type_affinity_and_composite_primary_key(
     ids=["wal", "mvcc"],
 )
 def test_table_list_and_inspectdb_hide_turso_autoincrement_metadata(
-    django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
+    django_db_blocker: DjangoDbBlocker, tmp_path: Path, options: dict[str, str]
 ) -> None:
-    with django_db_blocker.unblock(), registered_wrapper(
-        NAME=tmp_path / "introspection.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        registered_wrapper(NAME=tmp_path / "introspection.db", OPTIONS=options) as wrapper,
+    ):
         with wrapper.cursor() as cursor:
             cursor.execute(
                 "CREATE TABLE intro_autoincrement ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT)"
             )
             cursor.execute("INSERT INTO intro_autoincrement (value) VALUES ('present')")
-            near_prefix_table = (
-                "XXtursoXinternalXseqXXXtursoXinternalXautoincrementXuser"
-            )
+            near_prefix_table = "XXtursoXinternalXseqXXXtursoXinternalXautoincrementXuser"
             cursor.execute(f'CREATE TABLE "{near_prefix_table}" (value TEXT)')
             cursor.execute(
-                "CREATE VIEW intro_autoincrement_view AS "
-                "SELECT value FROM intro_autoincrement"
+                "CREATE VIEW intro_autoincrement_view AS SELECT value FROM intro_autoincrement"
             )
 
-            cursor.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE name GLOB '__turso_internal_*'"
-            )
+            cursor.execute("SELECT name FROM sqlite_master WHERE name GLOB '__turso_internal_*'")
             internal_names = {row[0] for row in cursor.fetchall()}
             assert (
                 "__turso_internal_seq___turso_internal_autoincrement_intro_autoincrement"
@@ -146,11 +148,12 @@ def test_table_list_and_inspectdb_hide_turso_autoincrement_metadata(
     ids=["wal", "mvcc"],
 )
 def test_sqlite_like_user_tables_remain_visible_and_cascade_flush(
-    django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
+    django_db_blocker: DjangoDbBlocker, tmp_path: Path, options: dict[str, str]
 ) -> None:
-    with django_db_blocker.unblock(), registered_wrapper(
-        NAME=tmp_path / "table_prefixes.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        registered_wrapper(NAME=tmp_path / "table_prefixes.db", OPTIONS=options) as wrapper,
+    ):
         with wrapper.cursor() as cursor:
             cursor.execute("CREATE TABLE prefix_parent (id INTEGER PRIMARY KEY AUTOINCREMENT)")
             cursor.execute(
@@ -186,18 +189,19 @@ def test_sqlite_like_user_tables_remain_visible_and_cascade_flush(
     ids=["wal", "mvcc"],
 )
 def test_inspectdb_foreign_keys_preserve_database_deletion_actions(
-    django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
+    django_db_blocker: DjangoDbBlocker, tmp_path: Path, options: dict[str, str]
 ) -> None:
-    with django_db_blocker.unblock(), registered_wrapper(
-        NAME=tmp_path / "relation_interface.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        registered_wrapper(NAME=tmp_path / "relation_interface.db", OPTIONS=options) as wrapper,
+    ):
         with wrapper.cursor() as cursor:
             cursor.execute("CREATE TABLE relation_parent (id INTEGER PRIMARY KEY)")
             cursor.execute(
                 "CREATE TABLE relation_child (id INTEGER PRIMARY KEY, parent_id INTEGER "
                 "REFERENCES relation_parent(id) ON DELETE CASCADE)"
             )
-            introspection = cast(DatabaseIntrospection, wrapper.introspection)
+            introspection = wrapper.introspection
             relation = introspection.get_relations(cursor, "relation_child")["parent_id"]
             assert relation == ("id", "relation_parent", models.DB_CASCADE)
 
@@ -211,7 +215,7 @@ def test_inspectdb_foreign_keys_preserve_database_deletion_actions(
 @pytest.mark.core
 @pytest.mark.parametrize("table_name", ["intro_sizes", "size(table", 'size")table', "size,table"])
 def test_declared_character_lengths_reach_introspection_and_inspectdb(
-    django_db_blocker: Any, table_name: str
+    django_db_blocker: DjangoDbBlocker, table_name: str
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         table_sql = connection.ops.quote_name(table_name)
@@ -273,11 +277,14 @@ def test_declared_character_lengths_reach_introspection_and_inspectdb(
     ids=["wal", "mvcc"],
 )
 def test_table_constraint_names_cannot_set_column_lengths(
-    django_db_blocker: Any, tmp_path: Path, options: dict[str, str]
+    django_db_blocker: DjangoDbBlocker, tmp_path: Path, options: dict[str, str]
 ) -> None:
-    with django_db_blocker.unblock(), isolate_apps(), registered_wrapper(
-        NAME=tmp_path / "constraint_sizes.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        isolate_apps(),
+        registered_wrapper(NAME=tmp_path / "constraint_sizes.db", OPTIONS=options) as wrapper,
+    ):
+
         class ConstraintSizes(models.Model):
             value = models.CharField(max_length=20, db_column="CONSTRAINT")
             checked = models.CharField(max_length=21, db_column="CHECK")
@@ -334,7 +341,7 @@ def test_table_constraint_names_cannot_set_column_lengths(
     ],
 )
 def test_only_column_collations_reach_introspection_and_inspectdb(
-    django_db_blocker: Any, column_sql: str, column_name: str, collation_sql: str
+    django_db_blocker: DjangoDbBlocker, column_sql: str, column_name: str, collation_sql: str
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
@@ -378,7 +385,7 @@ def test_only_column_collations_reach_introspection_and_inspectdb(
 
 
 @pytest.mark.core
-def test_relations_sequences_and_index_constraints(django_db_blocker: Any) -> None:
+def test_relations_sequences_and_index_constraints(django_db_blocker: DjangoDbBlocker) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
             """
@@ -485,7 +492,7 @@ def test_relations_sequences_and_index_constraints(django_db_blocker: Any) -> No
 
 
 @pytest.mark.core
-def test_missing_table_description_is_an_error(django_db_blocker: Any) -> None:
+def test_missing_table_description_is_an_error(django_db_blocker: DjangoDbBlocker) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         with pytest.raises(DatabaseError, match="does not exist"):
             connection.introspection.get_table_description(cursor, "intro_missing")
@@ -493,7 +500,7 @@ def test_missing_table_description_is_an_error(django_db_blocker: Any) -> None:
 
 @pytest.mark.core
 def test_json_introspection_requires_exact_quoted_and_unquoted_column_names(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
@@ -593,7 +600,7 @@ def test_introspection_constraint_parser_quoted_and_empty_branches() -> None:
     assert constraints["quoted unique"]["columns"] == ["quoted field", "other"]
     assert constraints["quoted check"]["columns"] == ["other"]
 
-    empty: Iterator[Any] = iter(())
+    empty: Iterator[SQLToken] = iter(())
     with pytest.raises(DatabaseError, match="empty table definition"):
         DatabaseIntrospection._parse_column_or_constraint_definition(empty, {"value"})
 
@@ -632,7 +639,7 @@ def test_introspection_constraint_parser_quoted_and_empty_branches() -> None:
 
 @pytest.mark.core
 def test_introspection_no_primary_key_and_constraint_edge_branches(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute("CREATE TABLE support_no_pk (value text, other text)")
@@ -652,15 +659,20 @@ def test_introspection_omitted_target_mismatch_is_an_error(
 ) -> None:
     introspection = DatabaseIntrospection(DatabaseWrapper(wrapper_settings(), "probe"))
     monkeypatch.setattr(introspection, "get_primary_key_columns", lambda cursor, table: ["id"])
-    rows = [(0, 0, "target", "left", None), (0, 1, "target", "right", None)]
+    rows: list[ForeignKeyRow] = [
+        (0, 0, "target", "left", None, "NO ACTION", "NO ACTION", "NONE"),
+        (0, 1, "target", "right", None, "NO ACTION", "NO ACTION", "NONE"),
+    ]
     with pytest.raises(DatabaseError, match="Cannot resolve foreign key target columns"):
-        introspection._resolve_foreign_key_target_columns(SimpleNamespace(), "target", rows)
+        introspection._resolve_foreign_key_target_columns(
+            cast(CursorWrapper, SimpleNamespace()), "target", rows
+        )
 
 
 @pytest.mark.core
 @pytest.mark.parametrize("constraint_prefix", ["", "CONSTRAINT pair_unique "])
 def test_table_unique_constraints_preserve_columns_and_inspectdb_output(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
     constraint_prefix: str,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
@@ -672,9 +684,7 @@ def test_table_unique_constraints_preserve_columns_and_inspectdb_output(
         try:
             constraints = connection.introspection.get_constraints(cursor, "intro_table_unique")
             unique_columns = [
-                constraint["columns"]
-                for constraint in constraints.values()
-                if constraint["unique"]
+                constraint["columns"] for constraint in constraints.values() if constraint["unique"]
             ]
             assert unique_columns == [["code"], ["a", "b"]]
             output = StringIO()
@@ -696,7 +706,7 @@ def test_table_unique_constraints_preserve_columns_and_inspectdb_output(
     ],
 )
 def test_quoted_constraints_preserve_identifiers_and_inspectdb_uniqueness(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
     column_sql: str,
     column_name: str,
     constraint_sql: str,
@@ -740,7 +750,9 @@ def test_quoted_table_unique_constraints_preserve_column_order(
 
 
 @pytest.mark.core
-def test_constraint_references_use_declared_column_names(django_db_blocker: Any) -> None:
+def test_constraint_references_use_declared_column_names(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
             'CREATE TABLE intro_constraint_case (id INTEGER PRIMARY KEY, "Value" TEXT, '
@@ -762,7 +774,7 @@ def test_constraint_references_use_declared_column_names(django_db_blocker: Any)
 @pytest.mark.parametrize("columns", [("Straße", "STRASSE"), ("é", "É"), ("Ω", "ω")])
 @pytest.mark.parametrize("json_index", [0, 1])
 def test_json_introspection_keeps_distinct_unicode_identifiers(
-    django_db_blocker: Any, columns: tuple[str, str], json_index: int
+    django_db_blocker: DjangoDbBlocker, columns: tuple[str, str], json_index: int
 ) -> None:
     quoted = [connection.ops.quote_name(column) for column in columns]
     definitions = [
@@ -785,7 +797,9 @@ def test_json_introspection_keeps_distinct_unicode_identifiers(
 
 
 @pytest.mark.core
-def test_unique_constraint_modifiers_do_not_become_columns(django_db_blocker: Any) -> None:
+def test_unique_constraint_modifiers_do_not_become_columns(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
             "CREATE TABLE intro_collated_unique (id INTEGER PRIMARY KEY, value TEXT, "
@@ -803,7 +817,7 @@ def test_unique_constraint_modifiers_do_not_become_columns(django_db_blocker: An
 
 
 @pytest.mark.core
-def test_schema_lookup_uses_native_table_name_case(django_db_blocker: Any) -> None:
+def test_schema_lookup_uses_native_table_name_case(django_db_blocker: DjangoDbBlocker) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
             'CREATE TABLE intro_lookup_case (id INTEGER PRIMARY KEY, "Value" VARCHAR(31) '
@@ -825,7 +839,9 @@ def test_schema_lookup_uses_native_table_name_case(django_db_blocker: Any) -> No
 
 
 @pytest.mark.core
-def test_single_quoted_identifiers_preserve_unique_constraints(django_db_blocker: Any) -> None:
+def test_single_quoted_identifiers_preserve_unique_constraints(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
             "CREATE TABLE intro_single_quotes (id INTEGER PRIMARY KEY, 'value' TEXT UNIQUE, "
@@ -859,11 +875,11 @@ def test_single_quoted_identifiers_preserve_unique_constraints(django_db_blocker
     ],
 )
 def test_check_expression_labels_do_not_become_columns(
-    django_db_blocker: Any, expression: str, expected_columns: list[str]
+    django_db_blocker: DjangoDbBlocker, expression: str, expected_columns: list[str]
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
-            'CREATE TABLE intro_check_labels (id INTEGER PRIMARY KEY, value TEXT, '
+            "CREATE TABLE intro_check_labels (id INTEGER PRIMARY KEY, value TEXT, "
             '"length" TEXT, "NOCASE" TEXT, CONSTRAINT value_check '
             f"CHECK({expression}))"
         )
@@ -880,13 +896,13 @@ def test_check_expression_labels_do_not_become_columns(
 )
 @pytest.mark.parametrize("quoted", [False, True])
 def test_check_literals_are_distinct_from_quoted_column_names(
-    django_db_blocker: Any, literal: str, quoted: bool
+    django_db_blocker: DjangoDbBlocker, literal: str, quoted: bool
 ) -> None:
     operand = connection.ops.quote_name(literal) if quoted else literal
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
-            'CREATE TABLE intro_check_literals (value TEXT, '
-            f'{connection.ops.quote_name(literal)} TEXT, CONSTRAINT literal_check '
+            "CREATE TABLE intro_check_literals (value TEXT, "
+            f"{connection.ops.quote_name(literal)} TEXT, CONSTRAINT literal_check "
             f"CHECK(value <> {operand}))"
         )
         try:
@@ -925,11 +941,24 @@ def test_check_literals_are_distinct_from_quoted_column_names(
     ],
 )
 def test_check_syntax_is_distinct_from_column_references(
-    django_db_blocker: Any, expression: str, expected_columns: list[str]
+    django_db_blocker: DjangoDbBlocker, expression: str, expected_columns: list[str]
 ) -> None:
     names = (
-        "AND", "OR", "IS", "NOT", "CASE", "WHEN", "THEN", "ELSE", "END", "AS", "IN",
-        "BETWEEN", "LIKE", "GLOB", "ESCAPE",
+        "AND",
+        "OR",
+        "IS",
+        "NOT",
+        "CASE",
+        "WHEN",
+        "THEN",
+        "ELSE",
+        "END",
+        "AS",
+        "IN",
+        "BETWEEN",
+        "LIKE",
+        "GLOB",
+        "ESCAPE",
     )
     definitions = ", ".join(f"{connection.ops.quote_name(name)} TEXT" for name in names)
     with django_db_blocker.unblock(), connection.cursor() as cursor:

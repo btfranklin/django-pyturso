@@ -9,8 +9,10 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+from http.client import HTTPMessage, HTTPResponse
 from pathlib import Path
-from typing import Any
+from typing import IO
+from urllib.response import addinfourl
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -19,6 +21,8 @@ from packaging.version import Version
 ROOT = Path(__file__).resolve().parents[1]
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
+type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
+
 
 class AuditError(RuntimeError):
     """The audit cannot establish a clean result."""
@@ -26,13 +30,14 @@ class AuditError(RuntimeError):
 
 class RejectRedirects(urllib.request.HTTPRedirectHandler):
     def redirect_request(
-        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+        self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str,
+        headers: HTTPMessage, newurl: str
     ) -> None:
         raise AuditError(f"PyPI returned an unexpected redirect (HTTP {code}).")
 
 
-def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
+def _unique_keys(pairs: list[tuple[str, JSONValue]]) -> dict[str, JSONValue]:
+    result: dict[str, JSONValue] = {}
     for key, value in pairs:
         if key in result:
             raise AuditError(f"PyPI returned a duplicate JSON key: {key!r}.")
@@ -65,22 +70,38 @@ def _runtime_dependencies(requirements: Path) -> dict[str, Version]:
     return dependencies
 
 
-def _validate_response(data: Any, name: str, version: Version) -> list[str]:
-    if not isinstance(data, dict) or not isinstance(data.get("info"), dict):
+def _advisory_strings(value: JSONValue, field: str, name: str) -> list[str]:
+    if not isinstance(value, list):
+        raise AuditError(f"PyPI returned an invalid advisory {field} for {name}.")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise AuditError(f"PyPI returned an invalid advisory {field} for {name}.")
+        result.append(item)
+    return result
+
+
+def _validate_response(data: JSONValue, name: str, version: Version) -> list[str]:
+    if not isinstance(data, dict):
         raise AuditError(f"PyPI returned invalid release metadata for {name}.")
-    info = data["info"]
-    if not isinstance(info.get("name"), str) or not isinstance(info.get("version"), str):
+    info = data.get("info")
+    if not isinstance(info, dict):
+        raise AuditError(f"PyPI returned invalid release metadata for {name}.")
+    release_name = info.get("name")
+    release_version = info.get("version")
+    if not isinstance(release_name, str) or not isinstance(release_version, str):
         raise AuditError(f"PyPI omitted the release identity for {name}.")
     if (
-        canonicalize_name(info["name"], validate=True) != name
-        or Version(info["version"]) != version
+        canonicalize_name(release_name, validate=True) != name
+        or Version(release_version) != version
     ):
         raise AuditError(f"PyPI returned a different release for {name}=={version}.")
-    if not isinstance(data.get("vulnerabilities"), list):
+    vulnerabilities = data.get("vulnerabilities")
+    if not isinstance(vulnerabilities, list):
         raise AuditError(f"PyPI omitted a valid vulnerability list for {name}=={version}.")
 
     active: list[str] = []
-    for advisory in data["vulnerabilities"]:
+    for advisory in vulnerabilities:
         if not isinstance(advisory, dict):
             raise AuditError(f"PyPI returned an invalid advisory for {name}.")
         identifier = advisory.get("id")
@@ -90,13 +111,8 @@ def _validate_response(data: Any, name: str, version: Version) -> list[str]:
             or any(character.isspace() for character in identifier)
         ):
             raise AuditError(f"PyPI returned an invalid advisory identifier for {name}.")
-        for field in ("aliases", "fixed_in"):
-            values = advisory.get(field)
-            if not isinstance(values, list) or any(
-                not isinstance(value, str) or not value for value in values
-            ):
-                raise AuditError(f"PyPI returned an invalid advisory {field} for {name}.")
-        for fixed_version in advisory["fixed_in"]:
+        _advisory_strings(advisory.get("aliases"), "aliases", name)
+        for fixed_version in _advisory_strings(advisory.get("fixed_in"), "fixed_in", name):
             Version(fixed_version)
         if "withdrawn" not in advisory:
             raise AuditError(f"PyPI omitted the advisory withdrawal state for {name}.")
@@ -118,20 +134,40 @@ def _validate_response(data: Any, name: str, version: Version) -> list[str]:
     return active
 
 
+def _json_value(value: object) -> JSONValue:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict):
+        result: dict[str, JSONValue] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise AuditError("PyPI returned a JSON key that is not a string.")
+            result[key] = _json_value(item)
+        return result
+    raise AuditError("PyPI returned a value that JSON does not support.")
+
+
 def _audit_release(opener: urllib.request.OpenerDirector, name: str, version: Version) -> list[str]:
     url = f"https://pypi.org/pypi/{name}/{urllib.parse.quote(str(version), safe='')}/json"
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
-        with opener.open(request, timeout=15) as response:
+        response: object = opener.open(request, timeout=15)
+        if not isinstance(response, (HTTPResponse, addinfourl)):
+            raise AuditError(f"PyPI returned an invalid HTTP response for {name}.")
+        with response:
             if response.status != 200 or response.headers.get_content_type() != "application/json":
                 raise AuditError(f"PyPI returned an unexpected response for {name}.")
-            body = response.read(MAX_RESPONSE_BYTES + 1)
+            body: object = response.read(MAX_RESPONSE_BYTES + 1)
+        if not isinstance(body, bytes):
+            raise AuditError(f"PyPI returned an invalid response body for {name}.")
         if len(body) > MAX_RESPONSE_BYTES:
             raise AuditError(f"PyPI returned too much release data for {name}.")
-        data = json.loads(
+        decoded: object = json.loads(
             body.decode("utf-8"), object_pairs_hook=_unique_keys, parse_constant=_reject_constant
         )
-        return _validate_response(data, name, version)
+        return _validate_response(_json_value(decoded), name, version)
     except (OSError, ValueError) as error:
         raise AuditError(f"Cannot audit {name}=={version}: {error}") from error
 

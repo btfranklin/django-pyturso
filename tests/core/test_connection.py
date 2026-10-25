@@ -1,12 +1,12 @@
 """Connection and settings contract tests."""
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 import turso
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper, TursoCursorWrapper
 from tests.support import wrapper_settings
@@ -19,7 +19,7 @@ class BytesPath:
 
 @pytest.mark.core
 def test_memory_connection_uses_turso_and_enables_foreign_keys(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute("SELECT sqlite_version(), 1")
@@ -37,7 +37,7 @@ def test_driver_lacks_the_binary_constructor_excluded_by_the_v1_contract() -> No
 
 
 @pytest.mark.core
-def test_file_connection_round_trip(tmp_path: Path, django_db_blocker: Any) -> None:
+def test_file_connection_round_trip(tmp_path: Path, django_db_blocker: DjangoDbBlocker) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(NAME=tmp_path / "local.db"), "probe")
     try:
         with django_db_blocker.unblock(), wrapper.cursor() as cursor:
@@ -66,11 +66,13 @@ def test_pathlike_memory_name_uses_memory_connection_and_lifecycle_semantics() -
         {"NAME": "file:local.db"},
         {"NAME": "https://example.com/db"},
         {"HOST": "localhost"},
+        {"OPTIONS": "bad"},
+        {"OPTIONS": {1: "DEFERRED"}},
         {"OPTIONS": {"check_same_thread": False}},
         {"OPTIONS": {"transaction_mode": "EXCLUSIVE"}},
     ],
 )
-def test_invalid_settings_are_rejected(overrides: dict[str, Any]) -> None:
+def test_invalid_settings_are_rejected(overrides: dict[str, object]) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(**overrides), "probe")
     with pytest.raises(ImproperlyConfigured):
         wrapper.get_connection_params()
@@ -100,8 +102,8 @@ def test_cursor_parameter_conversion() -> None:
             "SELECT 'prefix_%s', status, ? / 2, 2 * ?",
         ),
         (
-            "SELECT `%s`, [%%], \"escaped\"\"%s\", %s",
-            "SELECT `%s`, [%%], \"escaped\"\"%s\", ?",
+            'SELECT `%s`, [%%], "escaped""%s", %s',
+            'SELECT `%s`, [%%], "escaped""%s", ?',
         ),
         (
             'SELECT "prefix_%s", `prefix_%s`, [prefix_%s], %s',
@@ -114,20 +116,16 @@ def test_cursor_parameter_conversion() -> None:
         ("SELECT %%%% AS remainder, %%%s", "SELECT %% AS remainder, %?"),
     ],
 )
-def test_positional_conversion_respects_sql_lexical_boundaries(
-    query: str, expected: str
-) -> None:
+def test_positional_conversion_respects_sql_lexical_boundaries(query: str, expected: str) -> None:
     assert TursoCursorWrapper.convert_query(query) == expected
 
 
 def test_named_conversion_respects_sql_lexical_boundaries() -> None:
     query = (
-        'SELECT "%(value)s", `%s`, [%%], \'%(value)s %%\', %(value)s '
-        "-- %(value)s\n/* %(value)s */"
+        "SELECT \"%(value)s\", `%s`, [%%], '%(value)s %%', %(value)s -- %(value)s\n/* %(value)s */"
     )
     expected = (
-        'SELECT "%(value)s", `%s`, [%%], \'%(value)s %\', :value '
-        "-- %(value)s\n/* %(value)s */"
+        "SELECT \"%(value)s\", `%s`, [%%], '%(value)s %', :value -- %(value)s\n/* %(value)s */"
     )
 
     assert TursoCursorWrapper.convert_query(query, param_names=["value"]) == expected
@@ -144,9 +142,7 @@ def test_named_conversion_respects_sql_lexical_boundaries() -> None:
         ("SELECT %(broken)q, %(value", "SELECT %(broken)q, %(value"),
     ],
 )
-def test_conversion_does_not_bind_unterminated_sql_regions(
-    query: str, expected: str
-) -> None:
+def test_conversion_does_not_bind_unterminated_sql_regions(query: str, expected: str) -> None:
     assert TursoCursorWrapper.convert_query(query, param_names=["value"]) == expected
 
 

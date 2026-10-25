@@ -6,24 +6,26 @@ import os
 import re
 import time
 from collections import deque
-from collections.abc import Iterable, Iterator, Mapping, Sized
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Sized
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import chain
-from typing import Any, cast
+from typing import Self, cast
 
 import sqlparse
 import turso as Database
 from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError, IntegrityError, NotSupportedError, OperationalError
 from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.backends.utils import CursorWrapper
 from django.db.transaction import TransactionManagementError
 from django.utils.asyncio import async_unsafe
 
+from ._typing import Parameters, Row
 from .client import DatabaseClient
 from .creation import DatabaseCreation
 from .features import DatabaseFeatures
-from .introspection import DatabaseIntrospection
+from .introspection import DatabaseIntrospection, ForeignKeyRow
 from .operations import DatabaseOperations
 from .schema import DatabaseSchemaEditor
 
@@ -31,7 +33,7 @@ from .schema import DatabaseSchemaEditor
 # Placeholder conversion deliberately uses a local SQL-aware implementation.
 
 
-def _get_varchar_column(data: Mapping[str, Any]) -> str:
+def _get_varchar_column(data: Mapping[str, object]) -> str:
     max_length = data["max_length"]
     return "varchar" if max_length is None else f"varchar({max_length})"
 
@@ -49,7 +51,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     introspection_class = DatabaseIntrospection
     ops_class = DatabaseOperations
 
-    data_types: dict[str, Any] = {
+    # Django also accepts callable type templates. Its stub lists only strings.
+    data_types: dict[str, str | Callable[[Mapping[str, object]], str]] = {  # type: ignore[assignment]
         "AutoField": "integer",
         "BigAutoField": "integer",
         "BinaryField": "BLOB",
@@ -115,6 +118,15 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     }
     transaction_modes = frozenset({"DEFERRED", "IMMEDIATE", "CONCURRENT"})
 
+    settings_dict: dict[str, object]
+    connection: Database.Connection | None
+    features: DatabaseFeatures
+    introspection: DatabaseIntrospection
+    ops: DatabaseOperations
+    creation: DatabaseCreation
+    client: DatabaseClient
+    # Django stores the robust flag as a third item; its stub omits it.
+    run_on_commit: list[tuple[set[str], Callable[[], None], bool]]  # type: ignore[assignment]
     transaction_mode: str
     journal_mode: str | None = None
     _connected_database_version: tuple[int, int, int]
@@ -122,13 +134,15 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     health_check_done: bool
     rollback_exc: BaseException | None
 
-    def get_connection_params(self) -> dict[str, Any]:
+    def get_connection_params(self) -> dict[str, str | None]:
         settings_dict = self.settings_dict
         raw_name = settings_dict["NAME"]
         if not raw_name:
             raise ImproperlyConfigured(
                 "settings.DATABASES is improperly configured. Please supply NAME."
             )
+        if not isinstance(raw_name, str | bytes | os.PathLike):
+            raise ImproperlyConfigured("Database NAME must be a local filesystem path.")
         try:
             database = os.fspath(raw_name)
         except TypeError as exc:
@@ -144,7 +158,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 raise ImproperlyConfigured(
                     f"django-pyturso doesn't accept the {key} database setting."
                 )
-        options = dict(settings_dict.get("OPTIONS") or {})
+        raw_options = settings_dict.get("OPTIONS") or {}
+        if not isinstance(raw_options, Mapping) or not all(
+            isinstance(key, str) for key in raw_options
+        ):
+            raise ImproperlyConfigured("Database OPTIONS must be a mapping with text keys.")
+        options = cast(Mapping[str, object], raw_options)
         unknown = set(options) - {"transaction_mode", "journal_mode"}
         if unknown:
             names = ", ".join(sorted(unknown))
@@ -168,9 +187,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return {"database": database, "isolation_level": None}
 
     @async_unsafe
-    def get_new_connection(self, conn_params: dict[str, Any]) -> Any:
+    def get_new_connection(self, conn_params: dict[str, str | None]) -> Database.Connection:
+        database = conn_params["database"]
+        if database is None:
+            raise ImproperlyConfigured("Database NAME must be a nonempty local path.")
         try:
-            connection = Database.connect(**conn_params)
+            connection = Database.connect(
+                database=database, isolation_level=conn_params["isolation_level"]
+            )
         except Exception as error:
             # pyturso 0.7.0 raises an extension `turso.IoError` outside its
             # exported PEP 249 hierarchy for database-open failures. It can't
@@ -202,7 +226,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             raise
         return connection
 
-    def _configure_journal_mode(self, cursor: Any) -> None:
+    def _configure_journal_mode(self, cursor: Database.Cursor) -> None:
         cursor.execute("PRAGMA journal_mode")
         row = cursor.fetchone()
         if row is None or not isinstance(row[0], str) or row[0].upper() not in {"WAL", "MVCC"}:
@@ -227,17 +251,20 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         parts = raw_version.split(".")
         if len(parts) != 3 or not all(part.isdigit() for part in parts):
             raise DatabaseError(f"Invalid Turso engine version: {raw_version!r}.")
-        return tuple(int(part) for part in parts)  # type: ignore[return-value]
+        return int(parts[0]), int(parts[1]), int(parts[2])
 
     def get_database_version(self) -> tuple[int, int, int]:
         return self._connected_database_version
 
-    def create_cursor(self, name: str | None = None) -> Any:
-        cursor = self.connection.cursor(factory=TursoCursorWrapper)
+    def create_cursor(self, name: str | None = None) -> TursoCursorWrapper:
+        assert self.connection is not None
+        # The driver returns the requested factory, but its annotation keeps a union.
+        cursor = cast(TursoCursorWrapper, self.connection.cursor(factory=TursoCursorWrapper))
         cursor._django_wrapper = self
         return cursor
 
     def _begin(self) -> None:
+        assert self.connection is not None
         self.connection.execute(f"BEGIN {self.transaction_mode}")
 
     def _ensure_transaction(self) -> None:
@@ -252,6 +279,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self._begin()
 
     def _set_autocommit(self, autocommit: bool) -> None:
+        assert self.connection is not None
         with self.wrap_database_errors:
             if autocommit:
                 if self.connection.in_transaction:
@@ -266,6 +294,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             self._begin()
 
     def _savepoint_rollback(self, sid: str) -> None:
+        assert self.connection is not None
         if not self.connection.in_transaction:
             raise TransactionManagementError(
                 "The Turso transaction is no longer active; its savepoints are lost."
@@ -306,7 +335,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def check_constraints(self, table_names: Iterable[str] | None = None) -> None:
         """Raise for the first invalid FK without PRAGMA foreign_key_check."""
-        introspection = cast(DatabaseIntrospection, self.introspection)
+        introspection = self.introspection
         with self.cursor() as cursor:
             tables = (
                 list(table_names)
@@ -319,7 +348,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                     self._check_foreign_key(cursor, table_name, rows)
 
     def _source_identity(
-        self, cursor: Any, table_name: str, child_alias: str
+        self, cursor: CursorWrapper, table_name: str, child_alias: str
     ) -> tuple[list[str], list[str]]:
         primary_key_columns = self.introspection.get_primary_key_columns(cursor, table_name) or []
         if primary_key_columns:
@@ -344,10 +373,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             )
         return [f"{child_alias}.{self.ops.quote_name(rowid_name)}"], [rowid_name]
 
-    def _check_foreign_key(self, cursor: Any, table_name: str, rows: list[tuple[Any, ...]]) -> None:
+    def _check_foreign_key(
+        self, cursor: CursorWrapper, table_name: str, rows: list[ForeignKeyRow]
+    ) -> None:
         target_table = str(rows[0][2])
         source_columns = [str(row[3]) for row in rows]
-        introspection = cast(DatabaseIntrospection, self.introspection)
+        introspection = self.introspection
         target_columns = introspection._resolve_foreign_key_target_columns(
             cursor, target_table, rows
         )
@@ -387,6 +418,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         )
 
     def is_usable(self) -> bool:
+        assert self.connection is not None
         try:
             self.connection.execute("SELECT 1")
         except Database.Error:
@@ -491,7 +523,7 @@ class _QueryBindings:
     required_names: frozenset[str]
     native_bindings: bool
 
-    def prepare_params(self, params: Any) -> Any:
+    def prepare_params(self, params: Parameters) -> Sequence[object] | Mapping[str, object]:
         if not isinstance(params, (Mapping, Sized)):
             params = tuple(params)
         if self.required_names:
@@ -512,7 +544,7 @@ class _QueryBindings:
                 raise Database.ProgrammingError(
                     f"Expected {self.positional_count} parameters, received {supplied}."
                 )
-        return params
+        return params if isinstance(params, (Mapping, Sequence)) else tuple(params)
 
 
 def _convert_placeholders(query: str, *, param_names: list[str] | None) -> _QueryBindings:
@@ -637,7 +669,11 @@ def _is_write_statement(query: str) -> bool:
     """Find the first statement's verb, including after common table expressions."""
     depth = 0
     state = "statement"
-    for token_type, value in cast(Any, sqlparse.lexer.tokenize)(query):
+    # sqlparse does not annotate its lexer. Keep that boundary local.
+    tokenize = cast(
+        Callable[[str], Iterator[tuple[sqlparse.tokens._TokenType, str]]], sqlparse.lexer.tokenize
+    )
+    for token_type, value in tokenize(query):
         if token_type in sqlparse.tokens.Whitespace or token_type in sqlparse.tokens.Comment:
             continue
         if state == "after-cte":
@@ -652,7 +688,10 @@ def _is_write_statement(query: str) -> bool:
                 state = "cte-header"
                 continue
             return token_type in sqlparse.tokens.Keyword.DML and value.upper() in {
-                "INSERT", "UPDATE", "DELETE", "REPLACE"
+                "INSERT",
+                "UPDATE",
+                "DELETE",
+                "REPLACE",
             }
         if (
             state == "cte-header"
@@ -671,11 +710,24 @@ def _is_write_statement(query: str) -> bool:
     return False
 
 
+def _tuple_row(value: object) -> Row:
+    if not isinstance(value, tuple):
+        raise TypeError("Turso must return tuple rows; custom row factories are not supported.")
+    return value
+
+
+def _tuple_rows(values: list[object]) -> list[Row]:
+    for value in values:
+        _tuple_row(value)
+    # The driver owns this new list, and each item has been checked.
+    return cast(list[Row], values)
+
+
 class TursoCursorWrapper(Database.Cursor):
     """Convert Django placeholders and guard statements that execute during fetch."""
 
     _django_wrapper: DatabaseWrapper
-    _returning_rows: deque[Any] | None = None
+    _returning_rows: deque[Row] | None = None
 
     @contextmanager
     def _django_transaction(self) -> Iterator[None]:
@@ -691,22 +743,22 @@ class TursoCursorWrapper(Database.Cursor):
                 wrapper.run_on_commit = []
             raise
 
-    def execute(self, query: str, params: Any = None) -> Any:
+    def execute(self, query: str, params: Parameters | None = None) -> Self:
         with self._django_transaction():
             self._returning_rows = None
             if params is None:
-                result = super().execute(query)
+                super().execute(query)
             else:
                 names = list(params) if isinstance(params, Mapping) else None
                 bindings = _convert_placeholders(query, param_names=names)
-                result = super().execute(bindings.query, bindings.prepare_params(params))
+                super().execute(bindings.query, bindings.prepare_params(params))
             if self.description is not None and _is_write_statement(query):
                 # Complete the write now. Later fetches must not write after a
                 # commit or rollback. Ordinary SELECT results remain streamed.
-                self._returning_rows = deque(super().fetchall())
-            return result
+                self._returning_rows = deque(_tuple_rows(super().fetchall()))
+            return self
 
-    def executemany(self, query: str, param_list: Iterable[Any]) -> Any:
+    def executemany(self, query: str, param_list: Iterable[Parameters]) -> Self:
         with self._django_transaction():
             parameters = iter(param_list)
             try:
@@ -717,19 +769,21 @@ class TursoCursorWrapper(Database.Cursor):
             names = list(first) if isinstance(first, Mapping) else None
             bindings = _convert_placeholders(query, param_names=names)
 
-            def validated_rows() -> Iterator[Any]:
+            def validated_rows() -> Iterator[Sequence[object] | Mapping[str, object]]:
                 for row in chain((first,), parameters):
                     yield bindings.prepare_params(row)
 
-            return super().executemany(bindings.query, validated_rows())
+            super().executemany(bindings.query, validated_rows())
+            return self
 
-    def fetchone(self) -> Any:
+    def fetchone(self) -> Row | None:
         with self._django_transaction():
             if self._returning_rows is not None:
                 return self._returning_rows.popleft() if self._returning_rows else None
-            return super().fetchone()
+            row: object = super().fetchone()
+            return None if row is None else _tuple_row(row)
 
-    def fetchmany(self, size: int | None = None) -> list[Any]:
+    def fetchmany(self, size: int | None = None) -> list[Row]:
         with self._django_transaction():
             if self._returning_rows is not None:
                 size = self.arraysize if size is None else size
@@ -739,15 +793,24 @@ class TursoCursorWrapper(Database.Cursor):
                     self._returning_rows.popleft()
                     for _ in range(min(size, len(self._returning_rows)))
                 ]
-            return super().fetchmany(size)
+            return _tuple_rows(super().fetchmany(size))
 
-    def fetchall(self) -> list[Any]:
+    def fetchall(self) -> list[Row]:
         with self._django_transaction():
             if self._returning_rows is not None:
                 rows = list(self._returning_rows)
                 self._returning_rows.clear()
                 return rows
-            return super().fetchall()
+            return _tuple_rows(super().fetchall())
+
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> Row:
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
 
     def close(self) -> None:
         self._returning_rows = None

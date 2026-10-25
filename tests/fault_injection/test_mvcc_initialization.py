@@ -1,7 +1,5 @@
 """MVCC initialization must fail closed and release open resources."""
 
-from typing import Any
-
 import pytest
 import turso
 from django.db import DatabaseError
@@ -73,9 +71,9 @@ def test_journal_initialization_failure_closes_resources(
 ) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(OPTIONS={"journal_mode": "MVCC"}), "failed_mvcc")
     physical = JournalConnection(scenario)
-    received: list[dict[str, Any]] = []
+    received: list[dict[str, object]] = []
 
-    def connect(**params: Any) -> JournalConnection:
+    def connect(**params: object) -> JournalConnection:
         received.append(params)
         return physical
 

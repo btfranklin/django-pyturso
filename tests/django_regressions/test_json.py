@@ -1,7 +1,5 @@
 """Django JSON-query regressions. See docs/testing/django-regressions.md."""
 
-from typing import Any
-
 import pytest
 from django.db.models import Count, F, JSONField, OuterRef, Subquery, Value
 from django.db.models.fields.json import KT, KeyTransform
@@ -40,7 +38,7 @@ def test_has_key_matches_json_null() -> None:
         ("payload__i__in", [False, "foo"]),
     ],
 )
-def test_json_key_in(lookup: str, values: list[Any]) -> None:
+def test_json_key_in(lookup: str, values: list[int | str | None]) -> None:
     row = Record.objects.create(
         name="match", payload={"c": 14, "foo": "bar", "bax": {"foo": "bar"}, "h": True, "i": False}
     )

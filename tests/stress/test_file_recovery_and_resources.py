@@ -5,25 +5,39 @@ from __future__ import annotations
 import gc
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Protocol, cast
 
+# psutil has no installed stubs. The protocol below types the API used here.
 import psutil  # type: ignore[import-untyped]
 import pytest
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper
+
+
+class _OpenFile(Protocol):
+    @property
+    def path(self) -> str: ...
+
+
+class _Process(Protocol):
+    def num_threads(self) -> int: ...
+
+    def open_files(self) -> Sequence[_OpenFile]: ...
+
 
 CRASH_WRITER = Path(__file__).with_name("_crash_writer.py")
 
 
 @pytest.fixture(autouse=True)
-def unblock_database_access(django_db_blocker: Any) -> Iterator[None]:
+def unblock_database_access(django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     with django_db_blocker.unblock():
         yield
 
 
-def wrapper_settings(database: Path) -> dict[str, Any]:
+def wrapper_settings(database: Path) -> dict[str, object]:
     return {
         "ENGINE": "django_pyturso",
         "NAME": database,
@@ -50,17 +64,19 @@ def open_and_close(database: Path, alias: str) -> None:
         wrapper.close()
 
 
-def descriptor_count(process: psutil.Process) -> int:
-    if hasattr(process, "num_fds"):
-        return cast(int, process.num_fds())
-    return cast(int, process.num_handles())
+def descriptor_count(process: object) -> int:
+    count = getattr(process, "num_fds", None) or getattr(process, "num_handles")
+    assert callable(count)
+    result: object = count()
+    assert isinstance(result, int)
+    return result
 
 
 @pytest.mark.stress
 @pytest.mark.timeout(10)
 def test_repeated_file_connections_do_not_leak_resources(tmp_path: Path) -> None:
     database = tmp_path / "resources.db"
-    process = psutil.Process()
+    process = cast(_Process, psutil.Process())
 
     open_and_close(database, "stress_warmup")
     gc.collect()

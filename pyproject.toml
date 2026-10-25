@@ -78,8 +78,18 @@ select = ["E", "F", "W", "I"]
 [tool.mypy]
 python_version = "3.14"
 strict = true
+disallow_any_explicit = true
+disallow_any_unimported = true
+disallow_any_decorated = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code"]
 files = ["src", "tests", "scripts"]
 plugins = ["mypy_django_plugin.main"]
+
+# Hypothesis exposes decorated tests as Callable[..., None].
+[[tool.mypy.overrides]]
+module = "tests.property.*"
+disallow_any_decorated = false
 
 [tool.django-stubs]
 django_settings_module = "tests.settings.turso_memory"

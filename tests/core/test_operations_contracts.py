@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import datetime
 import decimal
-from typing import Any, Self, cast
+from collections.abc import Callable
+from typing import Self, cast
 
 import pytest
 from django.core.management.color import no_style
 from django.db import connection, models
 from django.db.models import Func, Sum, Value
 from django.db.models.constants import OnConflict
-from django.db.models.expressions import Col
+from django.db.models.expressions import Col, Expression
 
 from django_pyturso.introspection import DatabaseIntrospection
 from django_pyturso.operations import DatabaseOperations
@@ -37,16 +38,14 @@ def test_distinct_aggregate_rejection_keeps_allowed_expression_boundaries() -> N
         ('trailing"', '"trailing"""'),
     ],
 )
-def test_quote_name_requires_a_complete_existing_quote_pair(
-    name: str, expected: str
-) -> None:
+def test_quote_name_requires_a_complete_existing_quote_pair(name: str, expected: str) -> None:
     assert OPS.quote_name(name) == expected
 
 
 class _GraphCursor:
     def __init__(self, foreign_keys: dict[str, tuple[str, ...]]) -> None:
         self.foreign_keys = foreign_keys
-        self.rows: list[tuple[Any, ...]] = []
+        self.rows: list[tuple[object, ...]] = []
 
     def __enter__(self) -> _GraphCursor:
         return self
@@ -58,15 +57,13 @@ class _GraphCursor:
         if "sqlite_master" in sql:
             self.rows = [(table, "table") for table in self.foreign_keys]
             return
-        table = next(
-            table for table in self.foreign_keys if f'"{table}"' in sql
-        )
+        table = next(table for table in self.foreign_keys if f'"{table}"' in sql)
         self.rows = [
             (index, index, target, f"source_{index}", f"target_{index}")
             for index, target in enumerate(self.foreign_keys[table])
         ]
 
-    def fetchall(self) -> list[tuple[Any, ...]]:
+    def fetchall(self) -> list[tuple[object, ...]]:
         return self.rows
 
 
@@ -107,10 +104,7 @@ def test_reference_graph_keeps_distinct_unicode_table_names() -> None:
 def test_sequence_reset_sql_is_complete_for_multiple_escaped_table_names() -> None:
     assert OPS.sequence_reset_by_name_sql(
         no_style(), [{"table": "alpha"}, {"table": "quote'table"}]
-    ) == [
-        'UPDATE "sqlite_sequence" SET "seq" = 0 '
-        'WHERE "name" IN (\'alpha\', \'quote\'\'table\');'
-    ]
+    ) == ["UPDATE \"sqlite_sequence\" SET \"seq\" = 0 WHERE \"name\" IN ('alpha', 'quote''table');"]
 
 
 def test_datetime_adaptation_uses_the_database_timezone() -> None:
@@ -145,6 +139,7 @@ def test_datetime_conversion_uses_the_database_timezone(
         datetime.datetime(2026, 7, 13, 12), Value(None), connection
     )
 
+    assert converted is not None
     assert converted.tzinfo is connection.timezone
     assert observed == [connection.timezone]
 
@@ -155,9 +150,11 @@ def test_decimal_converter_registration_preserves_the_expression(
     ops = OPS
     field = models.DecimalField(max_digits=8, decimal_places=2)
     expression = Value(None, output_field=field)
-    observed: list[Any] = []
+    observed: list[Expression] = []
 
-    def converter_factory(candidate: Any) -> Any:
+    def converter_factory(
+        candidate: Expression,
+    ) -> Callable[[object, Expression | None, object], object]:
         observed.append(candidate)
         return lambda value, _expression, _connection: value
 
@@ -172,18 +169,16 @@ def test_decimal_conversion_uses_fixed_precision_and_field_context() -> None:
     ops = OPS
     field = models.DecimalField(max_digits=8, decimal_places=2)
     value_converter = ops.get_decimalfield_converter(Value(None, output_field=field))
-    assert value_converter(1.2345678901234567, None, connection) == decimal.Decimal(
+    assert value_converter(1.2345678901234567, Value(None), connection) == decimal.Decimal(
         "1.23456789012346"
     )
 
     field.context.rounding = decimal.ROUND_DOWN
     column_converter = ops.get_decimalfield_converter(Col("sample", field))
-    assert column_converter(1.239, None, connection) == decimal.Decimal("1.23")
+    assert column_converter(1.239, Col("sample", field), connection) == decimal.Decimal("1.23")
 
 
-@pytest.mark.parametrize(
-    "internal_type", ["PositiveBigIntegerField", "PositiveSmallIntegerField"]
-)
+@pytest.mark.parametrize("internal_type", ["PositiveBigIntegerField", "PositiveSmallIntegerField"])
 def test_all_positive_integer_ranges_have_a_zero_lower_bound(
     internal_type: str,
 ) -> None:

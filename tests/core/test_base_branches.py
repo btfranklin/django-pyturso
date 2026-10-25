@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import cast
 
 import pytest
 import turso
 from django.db import DatabaseError, NotSupportedError
+from django.db.backends.utils import CursorWrapper
 from django.db.transaction import TransactionManagementError
 
 from django_pyturso.base import DatabaseWrapper
-from django_pyturso.introspection import DatabaseIntrospection
+from django_pyturso.introspection import ForeignKeyRow
 from tests.support import wrapper_settings
 
 pytestmark = pytest.mark.core
@@ -71,7 +72,7 @@ class ReadbackCursor:
 
 
 def attach(wrapper: DatabaseWrapper, connection: object) -> None:
-    wrapper.connection = cast(Any, connection)
+    wrapper.connection = cast(turso.Connection, connection)
 
 
 def test_inconsistent_atomic_state_is_rejected() -> None:
@@ -136,11 +137,13 @@ def test_omitted_foreign_key_targets_require_matching_primary_key(
         "get_primary_key_columns",
         lambda cursor, table: [],
     )
-    rows = [(0, 0, "parent", "parent_id", None)]
+    rows: list[ForeignKeyRow] = [
+        (0, 0, "parent", "parent_id", None, "NO ACTION", "NO ACTION", "NONE")
+    ]
 
     with pytest.raises(DatabaseError, match="do not match the target primary key"):
-        cast(DatabaseIntrospection, wrapper.introspection)._resolve_foreign_key_target_columns(
-            object(), "parent", rows
+        wrapper.introspection._resolve_foreign_key_target_columns(
+            cast(CursorWrapper, object()), "parent", rows
         )
 
 
@@ -153,11 +156,13 @@ def test_omitted_foreign_key_targets_reject_invalid_sequence(
         "get_primary_key_columns",
         lambda cursor, table: ["id"],
     )
-    rows = [(0, 1, "parent", "parent_id", None)]
+    rows: list[ForeignKeyRow] = [
+        (0, 1, "parent", "parent_id", None, "NO ACTION", "NO ACTION", "NONE")
+    ]
 
     with pytest.raises(DatabaseError, match="Invalid foreign-key sequence 1"):
-        cast(DatabaseIntrospection, wrapper.introspection)._resolve_foreign_key_target_columns(
-            object(), "parent", rows
+        wrapper.introspection._resolve_foreign_key_target_columns(
+            cast(CursorWrapper, object()), "parent", rows
         )
 
 
@@ -181,7 +186,7 @@ def test_source_identity_rejects_fully_shadowed_rowid_aliases(
     )
 
     with pytest.raises(DatabaseError, match="no primary key or unshadowed rowid"):
-        wrapper._source_identity(object(), "child", '"child"')
+        wrapper._source_identity(cast(CursorWrapper, object()), "child", '"child"')
 
 
 def test_is_usable_reports_driver_error() -> None:
@@ -217,7 +222,7 @@ def test_close_noops_when_already_closed_in_transaction() -> None:
 
     wrapper.close()
 
-    assert wrapper.connection is physical
+    assert wrapper.connection is cast(turso.Connection, physical)
     wrapper._force_close()
 
 
@@ -234,7 +239,7 @@ def test_successful_health_check_marks_connection_checked(
     wrapper.close_if_health_check_failed()
 
     assert wrapper.health_check_done is True
-    assert wrapper.connection is physical
+    assert wrapper.connection is cast(turso.Connection, physical)
 
 
 def test_file_obsolescence_uses_base_lifecycle() -> None:
@@ -289,7 +294,7 @@ def test_healthy_memory_without_expiry_remains_open(monkeypatch: pytest.MonkeyPa
 
     wrapper.close_if_unusable_or_obsolete()
 
-    assert wrapper.connection is physical
+    assert wrapper.connection is cast(turso.Connection, physical)
 
 
 def test_memory_thread_sharing_is_rejected() -> None:

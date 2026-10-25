@@ -1,14 +1,16 @@
 """Run one offline stage of the shared-file interoperability corpus."""
-# mypy: disable-error-code=misc
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import NotRequired, TypedDict
 
 from django.conf import settings
+from django.db.models import Model
+
+from tests.value_types import JSONValue, json_value
 
 
 def _configure(engine: str, database: Path) -> None:
@@ -20,15 +22,23 @@ def _configure(engine: str, database: Path) -> None:
     )
 
 
-def _rows(model: Any) -> list[list[Any]]:
+def _rows(model: type[Model]) -> list[list[JSONValue]]:
     names = [field.name for field in model._meta.local_fields if field.name != "id"]
     return [
-        [row["id"], *(row[name] for name in names)]
-        for row in model.objects.order_by("id").values("id", *names)
+        [json_value(row["id"]), *(json_value(row[name]) for name in names)]
+        for row in model._default_manager.order_by("id").values("id", *names)
     ]
 
 
-def _run(stage: str) -> dict[str, Any]:
+class InteropStage(TypedDict):
+    columns: NotRequired[list[str]]
+    has_rank_index: NotRequired[bool]
+    rows: NotRequired[list[list[JSONValue]]]
+    before: NotRequired[list[list[JSONValue]]]
+    after: NotRequired[list[list[JSONValue]]]
+
+
+def _run(stage: str) -> InteropStage:
     import django
 
     django.setup()
@@ -37,7 +47,7 @@ def _run(stage: str) -> dict[str, Any]:
     has_status = stage in {"sqlite_verify_write", "turso_final_verify"}
 
     class InteropRecord(models.Model):
-        objects = models.Manager["InteropRecord"]()
+        objects: models.Manager[InteropRecord] = models.Manager()
         title = models.CharField(max_length=80, unique=True)
         rank = models.IntegerField(null=True)
         payload = models.JSONField()
@@ -79,9 +89,7 @@ def _run(stage: str) -> dict[str, Any]:
         raise ValueError(f"Unknown stage: {stage}")
 
     with connection.cursor() as cursor:
-        description = connection.introspection.get_table_description(
-            cursor, "file_interop_record"
-        )
+        description = connection.introspection.get_table_description(cursor, "file_interop_record")
         constraints = connection.introspection.get_constraints(cursor, "file_interop_record")
     return {
         "columns": [field.name for field in description],

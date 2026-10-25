@@ -7,7 +7,7 @@ import decimal
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 import pytest
 from django.db import IntegrityError, connection, models, transaction
@@ -20,16 +20,18 @@ from django.db.migrations.operations import (
     RemoveConstraint,
     RenameField,
 )
+from django.db.migrations.operations.base import Operation
 from django.db.migrations.state import ProjectState
+from pytest_django.plugin import DjangoDbBlocker
+
+from tests.value_types import JSONValue, json_value, load_json_object
 
 APP_LABEL = "migration_corpus"
 TABLE_PREFIX = "migration_corpus_"
-SNAPSHOT_PATH = (
-    Path(__file__).parents[1] / "snapshots" / "schema" / "migration-corpus.json"
-)
+SNAPSHOT_PATH = Path(__file__).parents[1] / "snapshots" / "schema" / "migration-corpus.json"
 
 
-def _apply_operation(state: ProjectState, operation: Any) -> ProjectState:
+def _apply_operation(state: ProjectState, operation: Operation) -> ProjectState:
     next_state = state.clone()
     operation.state_forwards(APP_LABEL, next_state)
     with connection.schema_editor() as editor:
@@ -38,14 +40,14 @@ def _apply_operation(state: ProjectState, operation: Any) -> ProjectState:
 
 
 def _reverse_operation(
-    state: ProjectState, operation: Any, previous_state: ProjectState
+    state: ProjectState, operation: Operation, previous_state: ProjectState
 ) -> ProjectState:
     with connection.schema_editor() as editor:
         operation.database_backwards(APP_LABEL, editor, state, previous_state)
     return previous_state
 
 
-def _normalize_value(value: Any) -> Any:
+def _normalize_value(value: object) -> JSONValue:
     if isinstance(value, datetime.datetime | datetime.date | datetime.time):
         return value.isoformat()
     if isinstance(value, datetime.timedelta):
@@ -56,11 +58,11 @@ def _normalize_value(value: Any) -> Any:
         return {key: _normalize_value(value[key]) for key in sorted(value)}
     if isinstance(value, list | tuple):
         return [_normalize_value(item) for item in value]
-    return value
+    return json_value(value)
 
 
-def _normalized_schema() -> dict[str, Any]:
-    result: dict[str, Any] = {}
+def _normalized_schema() -> dict[str, JSONValue]:
+    result: dict[str, JSONValue] = {}
     with connection.cursor() as cursor:
         table_names = sorted(
             name
@@ -101,7 +103,7 @@ def _normalized_schema() -> dict[str, Any]:
     return result
 
 
-def _normalized_data(state: ProjectState) -> dict[str, Any]:
+def _normalized_data(state: ProjectState) -> dict[str, JSONValue]:
     author = state.apps.get_model(APP_LABEL, "Author")
     article = state.apps.get_model(APP_LABEL, "Article")
     return {
@@ -110,28 +112,43 @@ def _normalized_data(state: ProjectState) -> dict[str, Any]:
     }
 
 
-def _snapshot_stage(state: ProjectState) -> dict[str, Any]:
-    content = {
+class SnapshotStage(TypedDict):
+    sha256: str
+    schema: dict[str, JSONValue]
+    data: dict[str, JSONValue]
+
+
+def _snapshot_stage(state: ProjectState) -> SnapshotStage:
+    content: SnapshotStage = {
+        "sha256": "",
         "schema": _normalized_schema(),
         "data": _normalized_data(state),
     }
-    serialized = json.dumps(content, sort_keys=True, separators=(",", ":"))
-    return {"sha256": hashlib.sha256(serialized.encode()).hexdigest(), **content}
+    serialized = json.dumps(
+        {"schema": content["schema"], "data": content["data"]},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    content["sha256"] = hashlib.sha256(serialized.encode()).hexdigest()
+    return content
 
 
 def _assert_snapshot_stage(
-    stage: str, actual: dict[str, Any], snapshot: dict[str, Any]
+    stage: str, actual: SnapshotStage, snapshot: dict[str, JSONValue]
 ) -> None:
-    expected = snapshot["stages"][stage]
+    stages = snapshot["stages"]
+    assert isinstance(stages, dict)
+    expected = stages[stage]
+    assert isinstance(expected, dict)
     assert actual["sha256"] == expected["schema_data_sha256"]
     assert sorted(actual["schema"]) == expected["tables"]
     assert {
-        key: len(rows) for key, rows in actual["data"].items()
+        key: len(rows) for key, rows in actual["data"].items() if isinstance(rows, list)
     } == expected["row_counts"]
 
 
-def _operations() -> tuple[list[Any], list[Any]]:
-    initial = [
+def _operations() -> tuple[list[Operation], list[Operation]]:
+    initial: list[Operation] = [
         CreateModel(
             name="Author",
             fields=[
@@ -143,9 +160,7 @@ def _operations() -> tuple[list[Any], list[Any]]:
             ],
             options={
                 "db_table": "migration_corpus_author",
-                "indexes": [
-                    models.Index(fields=["joined_on"], name="corpus_author_joined_ix")
-                ],
+                "indexes": [models.Index(fields=["joined_on"], name="corpus_author_joined_ix")],
             },
         ),
         CreateModel(
@@ -180,14 +195,12 @@ def _operations() -> tuple[list[Any], list[Any]]:
                     ),
                 ],
                 "indexes": [
-                    models.Index(
-                        fields=["published_at"], name="corpus_article_published_ix"
-                    )
+                    models.Index(fields=["published_at"], name="corpus_article_published_ix")
                 ],
             },
         ),
     ]
-    changes = [
+    changes: list[Operation] = [
         AlterField(
             model_name="author",
             name="slug",
@@ -203,9 +216,7 @@ def _operations() -> tuple[list[Any], list[Any]]:
             name="title",
             field=models.CharField(max_length=120),
         ),
-        RemoveConstraint(
-            model_name="article", name="corpus_article_status_ck"
-        ),
+        RemoveConstraint(model_name="article", name="corpus_article_status_ck"),
         RenameField(model_name="article", old_name="status", new_name="lifecycle"),
         AddConstraint(
             model_name="article",
@@ -227,9 +238,7 @@ def _operations() -> tuple[list[Any], list[Any]]:
         ),
         AddIndex(
             model_name="article",
-            index=models.Index(
-                fields=["lifecycle", "title"], name="corpus_article_state_title_ix"
-            ),
+            index=models.Index(fields=["lifecycle", "title"], name="corpus_article_state_title_ix"),
         ),
     ]
     return initial, changes
@@ -237,12 +246,12 @@ def _operations() -> tuple[list[Any], list[Any]]:
 
 @pytest.mark.core
 def test_generated_migration_corpus_matches_normalized_digest(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
-    snapshot: dict[str, Any] = json.loads(SNAPSHOT_PATH.read_text())
+    snapshot = load_json_object(SNAPSHOT_PATH.read_text())
     initial, changes = _operations()
     state = ProjectState()
-    history: list[tuple[Any, ProjectState]] = []
+    history: list[tuple[Operation, ProjectState]] = []
 
     with django_db_blocker.unblock():
         try:

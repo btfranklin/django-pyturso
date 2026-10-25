@@ -23,7 +23,8 @@ pdm run check
 ```
 
 This command checks documentation, lint, types, and tests without the integration and
-stress groups. Run the full gate with:
+stress groups. The [type-safety contract](type-safety.md) describes the strict
+checks and the remaining dependency boundaries. Run the full gate with:
 
 ```bash
 pdm run check-full

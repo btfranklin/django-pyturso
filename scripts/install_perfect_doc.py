@@ -10,11 +10,12 @@ import platform
 import tarfile
 import urllib.request
 import zipfile
+from http.client import HTTPResponse
 from pathlib import Path, PurePosixPath
 
 VERSION = "0.1.0"
 # SHA-256 digests from the published release assets.
-ARCHIVES = {
+ARCHIVES: dict[tuple[str, str], tuple[str, str]] = {
     ("Darwin", "arm64"): (
         "aarch64-apple-darwin.tar.gz",
         "e65a90824f58a843142cd872adce0fe46ad6c3990349c85f05cdcf02aeac68d3",
@@ -67,6 +68,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path)
     args = parser.parse_args()
+    destination: object = args.destination
+    if not isinstance(destination, Path):
+        parser.error("destination must be a path")
     system = platform.system()
     target = (system, platform.machine())
     if target not in ARCHIVES:
@@ -76,10 +80,13 @@ def main() -> None:
         f"https://github.com/btfranklin/perfect-doc/releases/download/v{VERSION}/"
         f"perfect-doc-{VERSION}-{archive}"
     )
-    with urllib.request.urlopen(url, timeout=60) as response:
+    response: object = urllib.request.urlopen(url, timeout=60)
+    if not isinstance(response, HTTPResponse):
+        raise RuntimeError("Perfect Doc download did not return an HTTP response")
+    with response:
         data = response.read()
     binary = install_archive(
-        data, checksum, args.destination.resolve(), windows=system == "Windows"
+        data, checksum, destination.resolve(), windows=system == "Windows"
     )
     if github_path := os.environ.get("GITHUB_PATH"):
         with Path(github_path).open("a", encoding="utf-8") as output:

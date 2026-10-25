@@ -12,11 +12,11 @@ import tempfile
 import tomllib
 import zipfile
 from collections.abc import Iterable
+from dataclasses import dataclass
 from email.message import Message
 from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path
-from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
@@ -24,10 +24,31 @@ NOTICE = "THIRD_PARTY_NOTICES.md"
 FORBIDDEN_ARCHIVE_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 
 
-def _project_metadata() -> dict[str, Any]:
+@dataclass(frozen=True)
+class ProjectMetadata:
+    name: str
+    requires_python: str
+    dependencies: tuple[str, ...]
+
+
+def _project_metadata() -> ProjectMetadata:
     with (ROOT / "pyproject.toml").open("rb") as manifest:
-        project: dict[str, Any] = tomllib.load(manifest)["project"]
-    return project
+        project: object = tomllib.load(manifest).get("project")
+    if not isinstance(project, dict):
+        raise RuntimeError("pyproject.toml must contain a project table")
+    name: object = project.get("name")
+    requires_python: object = project.get("requires-python")
+    dependencies: object = project.get("dependencies")
+    if not isinstance(name, str) or not isinstance(requires_python, str):
+        raise RuntimeError("Project name and requires-python must be strings")
+    if not isinstance(dependencies, list):
+        raise RuntimeError("Project dependencies must be a list")
+    requirements: list[str] = []
+    for dependency in dependencies:
+        if not isinstance(dependency, str):
+            raise RuntimeError("Each project dependency must be a string")
+        requirements.append(dependency)
+    return ProjectMetadata(name, requires_python, tuple(requirements))
 
 
 def _normalized_requirements(requirements: Iterable[str]) -> list[str]:
@@ -92,14 +113,15 @@ def _verify_archive(artifact: Path) -> Message:
         if any(Path(name).parts[0] == "tests" for name in names):
             raise RuntimeError(f"{artifact.name} unexpectedly contains tests")
         project = _project_metadata()
-        if metadata["Name"] != project["name"]:
+        if metadata["Name"] != project.name:
             raise RuntimeError(f"{artifact.name} has incorrect project metadata")
-        if metadata.get("Requires-Python", "").replace(" ", "") != project[
-            "requires-python"
-        ].replace(" ", ""):
+        if (
+            metadata.get("Requires-Python", "").replace(" ", "")
+            != project.requires_python.replace(" ", "")
+        ):
             raise RuntimeError(f"{artifact.name} has incorrect Requires-Python")
         requirements = _normalized_requirements(metadata.get_all("Requires-Dist", []))
-        if requirements != _normalized_requirements(project["dependencies"]):
+        if requirements != _normalized_requirements(project.dependencies):
             raise RuntimeError(f"{artifact.name} has incorrect Requires-Dist")
     return metadata
 
@@ -126,14 +148,14 @@ def _clean_install(artifact: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="django-pyturso-package-") as directory:
         project = Path(directory)
         artifact_uri = artifact.resolve().as_uri()
-        artifact_requirement = f"{metadata['name']} @ {artifact_uri}"
+        artifact_requirement = f"{metadata.name} @ {artifact_uri}"
         (project / "pyproject.toml").write_text(
             "\n".join(
                 [
                     "[project]",
                     'name = "django-pyturso-smoke"',
                     'version = "0.0.0"',
-                    f"requires-python = {json.dumps(metadata['requires-python'])}",
+                    f"requires-python = {json.dumps(metadata.requires_python)}",
                     f"dependencies = [{json.dumps(artifact_requirement)}]",
                     "",
                 ]
@@ -168,10 +190,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--expected-version")
     args = parser.parse_args()
+    expected_version: object = args.expected_version
+    if expected_version is not None and not isinstance(expected_version, str):
+        parser.error("expected-version must be a string")
     artifacts = _artifacts()
     metadata = {artifact.suffix: _verify_archive(artifact) for artifact in artifacts}
     _verify_metadata_consistency(
-        metadata[".whl"], metadata[".gz"], expected_version=args.expected_version
+        metadata[".whl"], metadata[".gz"], expected_version=expected_version
     )
     for artifact in artifacts:
         _clean_install(artifact)

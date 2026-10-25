@@ -1,5 +1,7 @@
 """Package metadata checks for the importable backend."""
 
+from __future__ import annotations
+
 import tomllib
 import zipfile
 from email.message import EmailMessage
@@ -16,15 +18,14 @@ def test_package_imports() -> None:
     assert django_pyturso.__doc__ == "Django database backend for embedded Turso."
 
 
-def _metadata(version: str) -> EmailMessage:
-    with (verify_packages.ROOT / "pyproject.toml").open("rb") as manifest:
-        project = tomllib.load(manifest)["project"]
-    message = EmailMessage()
-    message["Name"] = project["name"]
+def _metadata(version: str) -> EmailMessage[str, str]:
+    project = verify_packages._project_metadata()
+    message: EmailMessage[str, str] = EmailMessage()
+    message["Name"] = project.name
     message["Version"] = version
-    message["Requires-Python"] = project["requires-python"]
+    message["Requires-Python"] = project.requires_python
     message["License-Expression"] = "MIT"
-    for requirement in project["dependencies"]:
+    for requirement in project.dependencies:
         message["Requires-Dist"] = requirement
     return message
 
@@ -39,7 +40,7 @@ def changed_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _wheel(directory: Path, metadata: EmailMessage) -> Path:
+def _wheel(directory: Path, metadata: EmailMessage[str, str]) -> Path:
     artifact = directory / "django_pyturso-1.2.3-py3-none-any.whl"
     with zipfile.ZipFile(artifact, "w") as archive:
         archive.writestr("django_pyturso/base.py", "")
@@ -61,9 +62,7 @@ def test_wheel_metadata_follows_the_current_project_manifest(changed_manifest: P
 
 
 @pytest.mark.parametrize("change", ["stale", "missing", "extra", "duplicate"])
-def test_wheel_rejects_incorrect_dependency_metadata(
-    changed_manifest: Path, change: str
-) -> None:
+def test_wheel_rejects_incorrect_dependency_metadata(changed_manifest: Path, change: str) -> None:
     metadata = _metadata("1.2.3")
     requirements = metadata.get_all("Requires-Dist", [])
     del metadata["Requires-Dist"]
@@ -90,8 +89,16 @@ def test_clean_install_project_uses_declared_metadata(
         if command[1] == "install":
             project_directory = Path(command[command.index("--project") + 1])
             with (project_directory / "pyproject.toml").open("rb") as manifest:
-                project = tomllib.load(manifest)["project"]
-            configurations.append((project["requires-python"], project["dependencies"]))
+                document: object = tomllib.load(manifest)
+            assert isinstance(document, dict)
+            project: object = document["project"]
+            assert isinstance(project, dict)
+            python_requirement: object = project["requires-python"]
+            dependencies: object = project["dependencies"]
+            assert isinstance(python_requirement, str)
+            assert isinstance(dependencies, list)
+            assert all(isinstance(item, str) for item in dependencies)
+            configurations.append((python_requirement, [str(item) for item in dependencies]))
 
     monkeypatch.setattr("scripts.verify_packages.subprocess.run", run)
     artifact = _wheel(changed_manifest, _metadata("1.2.3"))

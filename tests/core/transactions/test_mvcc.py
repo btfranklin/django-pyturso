@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 import pytest
 from django.db import DatabaseError, NotSupportedError, transaction
+from pytest_django.plugin import DjangoDbBlocker
 
 from tests.core.transactions.test_state_machine import registered_wrapper
 
@@ -15,16 +16,17 @@ OPTIONS = {"journal_mode": "MVCC", "transaction_mode": "CONCURRENT"}
 
 
 @pytest.fixture(autouse=True)
-def unblock_database_access(django_db_blocker: Any) -> Any:
+def unblock_database_access(django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     with django_db_blocker.unblock():
         yield
 
 
 def test_independent_writers_commit_and_conflicting_writer_can_retry(tmp_path: Path) -> None:
     path = tmp_path / "writers.db"
-    with registered_wrapper(NAME=path, OPTIONS=OPTIONS) as a, registered_wrapper(
-        NAME=path, OPTIONS=OPTIONS
-    ) as b:
+    with (
+        registered_wrapper(NAME=path, OPTIONS=OPTIONS) as a,
+        registered_wrapper(NAME=path, OPTIONS=OPTIONS) as b,
+    ):
         with a.cursor() as cursor:
             cursor.execute("CREATE TABLE t(id INTEGER PRIMARY KEY, n INTEGER)")
             cursor.execute("INSERT INTO t VALUES (1,0),(2,0)")
@@ -68,7 +70,9 @@ def test_nested_atomic_and_manual_transactions() -> None:
         wrapper.commit()
         wrapper.set_autocommit(True)
         assert wrapper.cursor().execute("SELECT n FROM t ORDER BY n").fetchall() == [
-            (1,), (3,), (5,)
+            (1,),
+            (3,),
+            (5,),
         ]
 
 
@@ -109,9 +113,10 @@ def test_schema_editor_rejects_active_concurrent_transaction() -> None:
 
 def test_commit_conflict_discards_callbacks_and_preserves_committed_data(tmp_path: Path) -> None:
     path = tmp_path / "commit.db"
-    with registered_wrapper(NAME=path, OPTIONS=OPTIONS) as a, registered_wrapper(
-        NAME=path, OPTIONS=OPTIONS
-    ) as b:
+    with (
+        registered_wrapper(NAME=path, OPTIONS=OPTIONS) as a,
+        registered_wrapper(NAME=path, OPTIONS=OPTIONS) as b,
+    ):
         a.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY,n INTEGER UNIQUE)")
         callbacks: list[str] = []
         with pytest.raises(DatabaseError, match="conflict"):
@@ -126,7 +131,8 @@ def test_commit_conflict_discards_callbacks_and_preserves_committed_data(tmp_pat
             b.cursor().execute("INSERT INTO t VALUES(2,20)")
     with registered_wrapper(NAME=path, OPTIONS=OPTIONS) as reopened:
         assert reopened.cursor().execute("SELECT * FROM t ORDER BY id").fetchall() == [
-            (1, 10), (2, 20)
+            (1, 10),
+            (2, 20),
         ]
 
 

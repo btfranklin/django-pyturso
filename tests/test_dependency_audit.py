@@ -8,10 +8,11 @@ import subprocess
 import tomllib
 import urllib.request
 from collections.abc import Callable
+from dataclasses import dataclass
 from email.message import Message
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Protocol, TypedDict
 from urllib.response import addinfourl
 
 import pytest
@@ -19,34 +20,87 @@ from packaging.markers import Marker
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
-from scripts import audit_dependencies
+from scripts import audit_dependencies, verify_packages
+from scripts.audit_dependencies import JSONValue
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class ReleaseFixture(TypedDict):
+    info: dict[str, str]
+    vulnerabilities: list[JSONValue]
+
+
+type Transform = Callable[[ReleaseFixture], object]
+
+
+class Serve(Protocol):
+    def __call__(
+        self,
+        transform: Transform = ...,
+        *,
+        raw: bytes | None = ...,
+        status: int = ...,
+        content_type: str = ...,
+        error: Exception | None = ...,
+    ) -> list[str]: ...
+
+
+class _AuditResponse(addinfourl):
+    msg = "test response"
+
+
+@dataclass(frozen=True)
+class LockedPackage:
+    name: str
+    version: str
+    groups: tuple[str, ...]
+    marker: str | None
+
+
+def _locked_packages() -> list[LockedPackage]:
+    with (ROOT / "pdm.lock").open("rb") as source:
+        packages: object = tomllib.load(source).get("package")
+    assert isinstance(packages, list)
+    result: list[LockedPackage] = []
+    for package in packages:
+        assert isinstance(package, dict)
+        name: object = package.get("name")
+        version: object = package.get("version")
+        groups: object = package.get("groups")
+        marker: object = package.get("marker")
+        assert isinstance(name, str) and isinstance(version, str)
+        assert isinstance(groups, list)
+        group_names: list[str] = []
+        for group in groups:
+            assert isinstance(group, str)
+            group_names.append(group)
+        assert marker is None or isinstance(marker, str)
+        result.append(LockedPackage(name, version, tuple(group_names), marker))
+    return result
+
+
 def test_sqlparse_security_floor_is_declared_locked_and_installed() -> None:
-    with (ROOT / "pyproject.toml").open("rb") as source:
-        project = tomllib.load(source)["project"]
+    project = verify_packages._project_metadata()
     requirements = {
         canonicalize_name(requirement.name): requirement
-        for requirement in map(Requirement, project["dependencies"])
+        for requirement in map(Requirement, project.dependencies)
     }
     requirement = requirements[canonicalize_name("sqlparse")]
     assert "0.5.5" not in requirement.specifier
     assert version("sqlparse") in requirement.specifier
-    with (ROOT / "pdm.lock").open("rb") as source:
-        packages = tomllib.load(source)["package"]
-    locked = next(package for package in packages if package["name"] == "sqlparse")
-    assert locked["version"] in requirement.specifier
-    assert locked["version"] == version("sqlparse")
+    packages = _locked_packages()
+    locked = next(package for package in packages if package.name == "sqlparse")
+    assert locked.version in requirement.specifier
+    assert locked.version == version("sqlparse")
 
 
 @pytest.fixture
-def serve(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[str]]:
+def serve(monkeypatch: pytest.MonkeyPatch) -> Serve:
     """Replace only HTTPS transport; keep the complete audit and HTTP handlers."""
 
     def install(
-        transform: Callable[[dict[str, Any]], Any] = lambda data: data,
+        transform: Transform = lambda data: data,
         *,
         raw: bytes | None = None,
         status: int = 200,
@@ -55,22 +109,25 @@ def serve(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[str]]:
     ) -> list[str]:
         calls: list[str] = []
 
-        def https_open(handler: Any, request: urllib.request.Request) -> Any:
+        def https_open(
+            handler: urllib.request.HTTPSHandler, request: urllib.request.Request
+        ) -> _AuditResponse:
             calls.append(request.full_url)
             assert request.host == "pypi.org"
             assert request.get_header("Accept") == "application/json"
             if error is not None:
                 raise error
             name, release = request.selector.split("/")[2:4]
-            data = {"info": {"name": name, "version": release}, "vulnerabilities": []}
+            data: ReleaseFixture = {
+                "info": {"name": name, "version": release},
+                "vulnerabilities": [],
+            }
             body = raw if raw is not None else json.dumps(transform(data)).encode()
             headers = Message()
             headers["Content-Type"] = content_type
             if 300 <= status < 400:
                 headers["Location"] = "https://example.invalid/advisories"
-            response: Any = addinfourl(io.BytesIO(body), headers, request.full_url, status)
-            response.msg = "test response"
-            return response
+            return _AuditResponse(io.BytesIO(body), headers, request.full_url, status)
 
         monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", https_open)
         return calls
@@ -78,22 +135,20 @@ def serve(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[str]]:
     return install
 
 
-def _advisory(**changes: Any) -> dict[str, Any]:
+def _advisory(**changes: JSONValue) -> dict[str, JSONValue]:
     return {"id": "PYSEC-2026-1", "aliases": [], "fixed_in": [], "withdrawn": None, **changes}
 
 
 def test_audit_checks_every_locked_runtime_release(
-    serve: Callable[..., list[str]], capsys: pytest.CaptureFixture[str]
+    serve: Serve, capsys: pytest.CaptureFixture[str]
 ) -> None:
     calls = serve()
     audit_dependencies.main()
-    with (ROOT / "pdm.lock").open("rb") as source:
-        packages = tomllib.load(source)["package"]
+    packages = _locked_packages()
     expected = {
-        (canonicalize_name(package["name"]), package["version"])
+        (canonicalize_name(package.name), package.version)
         for package in packages
-        if "default" in package["groups"]
-        and (not package.get("marker") or Marker(package["marker"]).evaluate())
+        if "default" in package.groups and (not package.marker or Marker(package.marker).evaluate())
     }
     assert {tuple(url.split("/")[4:6]) for url in calls} == expected
     assert len(calls) == len(expected)
@@ -102,7 +157,7 @@ def test_audit_checks_every_locked_runtime_release(
 
 @pytest.mark.parametrize("vulnerabilities", [{}, "", None, False, 0, [None], [{}]])
 def test_real_audit_rejects_invalid_vulnerability_data(
-    serve: Callable[..., list[str]], vulnerabilities: Any, capsys: pytest.CaptureFixture[str]
+    serve: Serve, vulnerabilities: JSONValue, capsys: pytest.CaptureFixture[str]
 ) -> None:
     serve(lambda data: {**data, "vulnerabilities": vulnerabilities})
     with pytest.raises(audit_dependencies.AuditError):
@@ -125,7 +180,7 @@ def test_real_audit_rejects_invalid_vulnerability_data(
     ],
 )
 def test_real_audit_rejects_missing_or_wrong_release_data(
-    serve: Callable[..., list[str]], transform: Callable[[dict[str, Any]], Any]
+    serve: Serve, transform: Transform
 ) -> None:
     serve(transform)
     with pytest.raises(audit_dependencies.AuditError):
@@ -150,7 +205,7 @@ def test_real_audit_rejects_missing_or_wrong_release_data(
     ],
 )
 def test_real_audit_rejects_malformed_advisory_records(
-    serve: Callable[..., list[str]], advisory: dict[str, Any]
+    serve: Serve, advisory: dict[str, JSONValue]
 ) -> None:
     serve(lambda data: {**data, "vulnerabilities": [advisory]})
     with pytest.raises(audit_dependencies.AuditError):
@@ -158,7 +213,7 @@ def test_real_audit_rejects_malformed_advisory_records(
 
 
 def test_real_audit_rejects_active_advisories_even_without_a_fix(
-    serve: Callable[..., list[str]], capsys: pytest.CaptureFixture[str]
+    serve: Serve, capsys: pytest.CaptureFixture[str]
 ) -> None:
     serve(
         lambda data: (
@@ -176,7 +231,7 @@ def test_real_audit_rejects_active_advisories_even_without_a_fix(
 
 @pytest.mark.parametrize("offset", ["+00:60", "-00:99", "+01:99", "-01:60", "+24:00", "-24:00"])
 def test_real_audit_rejects_invalid_withdrawal_offsets(
-    serve: Callable[..., list[str]], offset: str, capsys: pytest.CaptureFixture[str]
+    serve: Serve, offset: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     calls = serve(
         lambda data: (
@@ -203,7 +258,7 @@ def test_real_audit_rejects_invalid_withdrawal_offsets(
     ],
 )
 def test_real_audit_accepts_valid_withdrawn_advisories(
-    serve: Callable[..., list[str]], withdrawn: str, capsys: pytest.CaptureFixture[str]
+    serve: Serve, withdrawn: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     serve(lambda data: {**data, "vulnerabilities": [_advisory(withdrawn=withdrawn)]})
     audit_dependencies.main()
@@ -219,40 +274,34 @@ def test_real_audit_accepts_valid_withdrawn_advisories(
         b'{"vulnerabilities":NaN}',
     ],
 )
-def test_real_audit_rejects_invalid_or_ambiguous_json(
-    serve: Callable[..., list[str]], raw: bytes
-) -> None:
+def test_real_audit_rejects_invalid_or_ambiguous_json(serve: Serve, raw: bytes) -> None:
     serve(raw=raw)
     with pytest.raises(audit_dependencies.AuditError):
         audit_dependencies.main()
 
 
 @pytest.mark.parametrize("status", [204, 301, 302, 307, 308, 404, 429, 500])
-def test_real_audit_rejects_errors_and_redirects(
-    serve: Callable[..., list[str]], status: int
-) -> None:
+def test_real_audit_rejects_errors_and_redirects(serve: Serve, status: int) -> None:
     calls = serve(status=status)
     with pytest.raises(audit_dependencies.AuditError):
         audit_dependencies.main()
     assert len(calls) == 1
 
 
-def test_real_audit_rejects_wrong_content_type(serve: Callable[..., list[str]]) -> None:
+def test_real_audit_rejects_wrong_content_type(serve: Serve) -> None:
     serve(content_type="text/html")
     with pytest.raises(audit_dependencies.AuditError):
         audit_dependencies.main()
 
 
-def test_real_audit_rejects_large_responses(
-    serve: Callable[..., list[str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_real_audit_rejects_large_responses(serve: Serve, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(audit_dependencies, "MAX_RESPONSE_BYTES", 16)
     serve()
     with pytest.raises(audit_dependencies.AuditError, match="too much"):
         audit_dependencies.main()
 
 
-def test_real_audit_rejects_timeouts(serve: Callable[..., list[str]]) -> None:
+def test_real_audit_rejects_timeouts(serve: Serve) -> None:
     serve(error=TimeoutError("feed timeout"))
     with pytest.raises(audit_dependencies.AuditError, match="feed timeout"):
         audit_dependencies.main()
@@ -260,11 +309,11 @@ def test_real_audit_rejects_timeouts(serve: Callable[..., list[str]]) -> None:
 
 @pytest.mark.parametrize("failed_stage", ["lock", "export"])
 def test_failed_collection_does_not_query_the_feed(
-    monkeypatch: pytest.MonkeyPatch, serve: Callable[..., list[str]], failed_stage: str
+    monkeypatch: pytest.MonkeyPatch, serve: Serve, failed_stage: str
 ) -> None:
     calls = serve()
 
-    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         assert kwargs["check"] is True
         if command[1] == failed_stage:
             raise subprocess.CalledProcessError(1, command)

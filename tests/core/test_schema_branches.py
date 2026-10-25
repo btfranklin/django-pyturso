@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime
 import math
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,8 +15,10 @@ from django.db.backends.ddl_references import Statement, Table
 from django_pyturso.schema import DatabaseSchemaEditor
 from tests.schema_support import (
     SchemaConnection,
+    field_double,
     hashable_namespace,
     many_to_many_field,
+    model_double,
     schema_editor,
 )
 
@@ -116,7 +117,7 @@ def test_exit_raises_lone_restoration_failure(monkeypatch: pytest.MonkeyPatch) -
         (datetime.time(12, 30, 1, 4000), "'12:30:01.004000'"),
     ],
 )
-def test_quote_value_additional_supported_literals(value: Any, expected: str) -> None:
+def test_quote_value_additional_supported_literals(value: object, expected: str) -> None:
     editor = object.__new__(DatabaseSchemaEditor)
     assert editor.prepare_default(value) == expected
 
@@ -146,7 +147,7 @@ def test_delete_model_filters_only_matching_deferred_statements(
     editor.deferred_sql = [matching, other, marker]
     model = SimpleNamespace(_meta=SimpleNamespace(db_table="branch_table"))
 
-    editor.delete_model(model, handle_autom2m=False)
+    editor.delete_model(model_double(model), handle_autom2m=False)
 
     assert editor.deferred_sql == [other, marker]
 
@@ -155,7 +156,7 @@ def test_delete_model_default_delegates_to_base() -> None:
     editor = schema_editor()
     model = SimpleNamespace()
     with patch.object(BaseDatabaseSchemaEditor, "delete_model") as parent:
-        editor.delete_model(model)
+        editor.delete_model(model_double(model))
     parent.assert_called_once_with(model)
 
 
@@ -168,15 +169,13 @@ def test_add_field_dispatches_many_to_many_composite_and_remake(
     monkeypatch.setattr(editor, "create_model", created)
     monkeypatch.setattr(editor, "_remake_table", remade)
     through = SimpleNamespace(_meta=SimpleNamespace(auto_created=True))
-    many = SimpleNamespace(
-        many_to_many=True, remote_field=SimpleNamespace(through=through)
-    )
+    many = SimpleNamespace(many_to_many=True, remote_field=SimpleNamespace(through=through))
     model = SimpleNamespace()
 
-    editor.add_field(model, many)
-    editor.add_field(model, models.CompositePrimaryKey("left", "right"))
+    editor.add_field(model_double(model), field_double(many))
+    editor.add_field(model_double(model), field_double(models.CompositePrimaryKey("left", "right")))
     ordinary = SimpleNamespace(many_to_many=False)
-    editor.add_field(model, ordinary)
+    editor.add_field(model_double(model), field_double(ordinary))
 
     created.assert_called_once_with(through)
     remade.assert_called_once_with(model, create_field=ordinary)
@@ -186,7 +185,7 @@ def test_remove_field_dispatches_all_supported_shapes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     editor = schema_editor()
-    features: Any = editor.connection.features
+    features = editor.connection.features
     features.can_alter_table_drop_column = True
     deleted = MagicMock()
     remade = MagicMock()
@@ -225,12 +224,12 @@ def test_remove_field_dispatches_all_supported_shapes(
         db_parameters=lambda **_kwargs: {"type": None},
     )
 
-    editor.remove_field(model, auto_m2m)
-    editor.remove_field(model, manual_m2m)
+    editor.remove_field(model_double(model), field_double(auto_m2m))
+    editor.remove_field(model_double(model), field_double(manual_m2m))
     with patch.object(BaseDatabaseSchemaEditor, "remove_field") as parent:
-        editor.remove_field(model, direct)
-    editor.remove_field(model, remake)
-    editor.remove_field(model, virtual)
+        editor.remove_field(model_double(model), field_double(direct))
+    editor.remove_field(model_double(model), field_double(remake))
+    editor.remove_field(model_double(model), field_double(virtual))
 
     deleted.assert_called_once_with(auto_through)
     parent.assert_called_once_with(model, direct)
@@ -276,7 +275,15 @@ def test_alter_unique_field_remakes_matching_related_model(
         db_constraint=False,
     )
 
-    editor._alter_field(model, old_field, new_field, "varchar(10)", "varchar(20)", {}, {})
+    editor._alter_field(
+        model_double(model),
+        field_double(old_field),
+        field_double(new_field),
+        "varchar(10)",
+        "varchar(20)",
+        {},
+        {},
+    )
 
     assert [call.args[0] for call in remade.call_args_list] == [model, related]
 
@@ -331,7 +338,15 @@ def test_alter_primary_key_remakes_auto_many_to_many_relations(
     )
     old_field = SimpleNamespace(column="id", remote_field=None, db_constraint=False)
 
-    editor._alter_field(model, old_field, new_field, "integer", "bigint", {}, {})
+    editor._alter_field(
+        model_double(model),
+        field_double(old_field),
+        field_double(new_field),
+        "integer",
+        "bigint",
+        {},
+        {},
+    )
 
     remade_models = {call.args[0] for call in remade.call_args_list[1:]}
     assert remade_models == {through_from_relation, through_from_field}
@@ -346,18 +361,14 @@ def test_alter_many_to_many_same_table_uses_remake(
     old_fields = {"left": object(), "right": object()}
     new_fields = {"left": object(), "right": object()}
     old_through = SimpleNamespace(
-        _meta=SimpleNamespace(
-            db_table="same_table", get_field=lambda name: old_fields[name]
-        )
+        _meta=SimpleNamespace(db_table="same_table", get_field=lambda name: old_fields[name])
     )
     new_through = SimpleNamespace(
-        _meta=SimpleNamespace(
-            db_table="same_table", get_field=lambda name: new_fields[name]
-        )
+        _meta=SimpleNamespace(db_table="same_table", get_field=lambda name: new_fields[name])
     )
 
     editor._alter_many_to_many(
-        SimpleNamespace(),
+        model_double(SimpleNamespace()),
         many_to_many_field(old_through, "left", "right"),
         many_to_many_field(new_through, "left", "right"),
         strict=False,
@@ -381,7 +392,7 @@ def test_alter_many_to_many_different_table_copies_and_drops(
     monkeypatch.setattr(editor, "quote_name", lambda name: f'"{name}"')
 
     editor._alter_many_to_many(
-        SimpleNamespace(),
+        model_double(SimpleNamespace()),
         many_to_many_field(old_through, "old_left", "old_right"),
         many_to_many_field(new_through, "new_left", "new_right"),
         strict=False,
@@ -407,10 +418,10 @@ def test_constraint_dispatch_and_collation(monkeypatch: pytest.MonkeyPatch) -> N
         patch.object(BaseDatabaseSchemaEditor, "add_constraint") as parent_add,
         patch.object(BaseDatabaseSchemaEditor, "remove_constraint") as parent_remove,
     ):
-        editor.add_constraint(model, conditional)
-        editor.remove_constraint(model, conditional)
-    editor.add_constraint(model, ordinary)
-    editor.remove_constraint(model, ordinary)
+        editor.add_constraint(model_double(model), conditional)
+        editor.remove_constraint(model_double(model), conditional)
+    editor.add_constraint(model_double(model), ordinary)
+    editor.remove_constraint(model_double(model), ordinary)
 
     parent_add.assert_called_once_with(model, conditional)
     parent_remove.assert_called_once_with(model, conditional)

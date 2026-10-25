@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from django.db import OperationalError
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper
 from tests.support import wrapper_settings
@@ -31,7 +31,7 @@ def _round_trip(wrapper: DatabaseWrapper) -> None:
 
 @pytest.mark.core
 def test_traversal_shaped_relative_path_is_a_normal_django_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, django_db_blocker: Any
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, django_db_blocker: DjangoDbBlocker
 ) -> None:
     (tmp_path / "nested").mkdir()
     monkeypatch.chdir(tmp_path)
@@ -43,7 +43,7 @@ def test_traversal_shaped_relative_path_is_a_normal_django_name(
 
 @pytest.mark.core
 def test_symlink_database_name_follows_filesystem_semantics(
-    tmp_path: Path, django_db_blocker: Any
+    tmp_path: Path, django_db_blocker: DjangoDbBlocker
 ) -> None:
     target = tmp_path / "target.db"
     with django_db_blocker.unblock():
@@ -57,7 +57,7 @@ def test_symlink_database_name_follows_filesystem_semantics(
 
 @pytest.mark.core
 def test_non_regular_database_name_is_rejected_by_driver(
-    tmp_path: Path, django_db_blocker: Any
+    tmp_path: Path, django_db_blocker: DjangoDbBlocker
 ) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(NAME=tmp_path), "probe")
     with (
@@ -81,7 +81,7 @@ _is_posix_root = os.name == "posix" and callable(_geteuid) and _geteuid() == 0
 @pytest.mark.core
 @pytest.mark.skipif(os.name != "posix" or _is_posix_root, reason="POSIX permission probe")
 def test_permission_failure_does_not_leave_a_connection(
-    tmp_path: Path, django_db_blocker: Any
+    tmp_path: Path, django_db_blocker: DjangoDbBlocker
 ) -> None:
     locked = tmp_path / "locked"
     locked.mkdir()

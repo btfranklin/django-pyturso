@@ -1,8 +1,9 @@
 """Test database lifecycle for embedded Turso."""
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Never
 
 from django.db import NotSupportedError
 from django.db.backends.base.creation import BaseDatabaseCreation
@@ -14,17 +15,32 @@ if TYPE_CHECKING:
 class DatabaseCreation(BaseDatabaseCreation):
     """Create local file or single-connection in-memory test databases."""
 
+    connection: DatabaseWrapper
+
     @staticmethod
     def is_in_memory_db(database_name: object) -> bool:
         if not isinstance(database_name, str | bytes | os.PathLike):
             return False
         return bool(os.fspath(database_name) == ":memory:")
 
+    @staticmethod
+    def _database_path(value: object) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, os.PathLike):
+            path: object = os.fspath(value)
+            if isinstance(path, str):
+                return path
+        raise TypeError("Database names must be strings or paths that return strings.")
+
     def _get_test_db_name(self) -> str:
-        configured_name = self.connection.settings_dict["TEST"]["NAME"]
+        test_settings = self.connection.settings_dict["TEST"]
+        if not isinstance(test_settings, Mapping):
+            raise TypeError("TEST must be a mapping of test database settings.")
+        configured_name: object = test_settings["NAME"]
         if configured_name:
-            return str(os.fspath(configured_name))
-        source_name = os.fspath(self.connection.settings_dict["NAME"])
+            return self._database_path(configured_name)
+        source_name = self._database_path(self.connection.settings_dict["NAME"])
         if self.is_in_memory_db(source_name):
             return ":memory:"
         path = Path(source_name)
@@ -54,7 +70,7 @@ class DatabaseCreation(BaseDatabaseCreation):
     def _clone_test_db(self, suffix: str, verbosity: int, keepdb: bool = False) -> None:
         raise NotSupportedError("django-pyturso doesn't support parallel test database cloning.")
 
-    def get_test_db_clone_settings(self, suffix: str) -> dict[str, Any]:
+    def get_test_db_clone_settings(self, suffix: str) -> Never:
         raise NotSupportedError("django-pyturso doesn't support parallel test database cloning.")
 
     def destroy_test_db(
@@ -78,21 +94,22 @@ class DatabaseCreation(BaseDatabaseCreation):
             if artifact.exists():
                 artifact.unlink()
 
-    def set_as_test_mirror(self, primary_settings_dict: dict[str, Any]) -> None:
+    def set_as_test_mirror(self, primary_settings_dict: Mapping[str, object]) -> None:
         if self.is_in_memory_db(primary_settings_dict["NAME"]):
             raise NotSupportedError(
                 "django-pyturso test mirrors require a file-backed primary database."
             )
         self._close_for_test_database_switch()
-        super().set_as_test_mirror(primary_settings_dict)
+        self.connection.settings_dict["NAME"] = primary_settings_dict["NAME"]
 
     def _close_for_test_database_switch(self) -> None:
-        connection = cast("DatabaseWrapper", self.connection)
+        connection = self.connection
         connection.validate_thread_sharing()
         connection.validate_no_atomic_block()
         connection._rollback_and_force_close()
 
-    def test_db_signature(self) -> tuple[Any, ...]:
+    def test_db_signature(self) -> tuple[object, str]:  # type: ignore[override]
+        # Django accepts variable-length signatures; its stub requires four items.
         test_database_name = self._get_test_db_name()
         if self.is_in_memory_db(test_database_name):
             return (self.connection.settings_dict["NAME"], self.connection.alias)

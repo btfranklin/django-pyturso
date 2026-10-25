@@ -5,17 +5,17 @@ import decimal
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
 
 import pytest
-from django.db import connection
+from django.db import connection, models
 from django.db.models.functions import ExtractYear, TruncSecond
+from pytest_django.plugin import DjangoDbBlocker
 
 from tests.project.models import Entry, ScalarValues
 
 
 @contextmanager
-def model_table(model: Any) -> Iterator[None]:
+def model_table(model: type[models.Model]) -> Iterator[None]:
     created = model._meta.db_table not in connection.introspection.table_names()
     if created:
         with connection.schema_editor() as editor:
@@ -27,11 +27,11 @@ def model_table(model: Any) -> Iterator[None]:
             with connection.schema_editor() as editor:
                 editor.delete_model(model)
         else:
-            model.objects.all().delete()
+            model._default_manager.all().delete()
 
 
 @pytest.mark.core
-def test_create_query_update_and_delete(django_db_blocker: Any) -> None:
+def test_create_query_update_and_delete(django_db_blocker: DjangoDbBlocker) -> None:
     with django_db_blocker.unblock():
         with model_table(Entry):
             entry = Entry.objects.create(title="first")
@@ -46,7 +46,7 @@ def test_create_query_update_and_delete(django_db_blocker: Any) -> None:
 
 
 @pytest.mark.core
-def test_scalar_value_round_trips(django_db_blocker: Any) -> None:
+def test_scalar_value_round_trips(django_db_blocker: DjangoDbBlocker) -> None:
     identifier = uuid.UUID("018f1c7d-2a9b-7d64-bf10-123456789abc")
     expected_datetime = datetime.datetime(2026, 7, 13, 18, 42, 31, 123456, tzinfo=datetime.UTC)
     values = {
@@ -69,7 +69,7 @@ def test_scalar_value_round_trips(django_db_blocker: Any) -> None:
 
 
 @pytest.mark.core
-def test_native_temporal_and_json_expressions(django_db_blocker: Any) -> None:
+def test_native_temporal_and_json_expressions(django_db_blocker: DjangoDbBlocker) -> None:
     moment = datetime.datetime(2026, 7, 13, 18, 42, 31, 123456, tzinfo=datetime.UTC)
     with django_db_blocker.unblock():
         with model_table(ScalarValues):

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace, TracebackType
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
+from django_pyturso.base import DatabaseWrapper
 from django_pyturso.schema import DatabaseSchemaEditor
 
 pytestmark = pytest.mark.core
@@ -26,7 +27,7 @@ class _LifecycleConnection:
 
 
 def _editor(check_error: BaseException | None = None) -> DatabaseSchemaEditor:
-    wrapper = cast(Any, _LifecycleConnection(check_error))
+    wrapper = cast(DatabaseWrapper, _LifecycleConnection(check_error))
     editor = DatabaseSchemaEditor(wrapper, atomic=False)
     editor.deferred_sql = []
     return editor
@@ -64,13 +65,15 @@ def test_check_failure_is_forwarded_to_base_exit_with_its_traceback(
 ) -> None:
     check_error = ValueError("check failed")
     editor = _editor(check_error)
-    observed: list[tuple[Any, BaseException | None, Any]] = []
+    observed: list[
+        tuple[type[BaseException] | None, BaseException | None, TracebackType | None]
+    ] = []
 
     def base_exit(
         _self: BaseDatabaseSchemaEditor,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
-        traceback: Any,
+        traceback: TracebackType | None,
     ) -> None:
         observed.append((exc_type, exc_value, traceback))
 
@@ -98,7 +101,7 @@ def test_restoration_failure_keeps_base_exit_failure_primary_and_traceback(
     exit_error = RuntimeError("base exit failed")
     restoration_error = OSError("restore failed")
 
-    def base_exit(*_args: Any) -> None:
+    def base_exit(*_args: object) -> None:
         raise exit_error
 
     def restore() -> None:
@@ -121,7 +124,7 @@ def test_lone_base_exit_failure_preserves_its_original_traceback(
     editor = _editor()
     exit_error = RuntimeError("base exit failed")
 
-    def base_exit(*_args: Any) -> None:
+    def base_exit(*_args: object) -> None:
         raise exit_error
 
     monkeypatch.setattr(BaseDatabaseSchemaEditor, "__exit__", base_exit)

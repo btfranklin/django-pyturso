@@ -7,16 +7,60 @@ import datetime
 import decimal
 import math
 from types import TracebackType
-from typing import Any, Self, cast
+from typing import TYPE_CHECKING, Never, Protocol, Self, cast
 
 from django.apps.registry import Apps
 from django.db import NotSupportedError
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.backends.ddl_references import Statement
 from django.db.backends.utils import strip_quotes
-from django.db.models import CompositePrimaryKey, UniqueConstraint
+from django.db.models import CompositePrimaryKey, Field, ManyToManyField, Model, UniqueConstraint
+from django.db.models.constraints import BaseConstraint
+from django.db.models.fields.reverse_related import ManyToManyRel
 
-from .features import DatabaseFeatures
+if TYPE_CHECKING:
+    from .base import DatabaseWrapper
+
+type SchemaField = Field[Never, object]
+
+
+def _column(field: SchemaField) -> str:
+    column = field.column
+    if column is None:
+        raise ValueError("Expected a database column for this field.")
+    return column
+
+
+class _IndexedField(Protocol):
+    db_index: bool | None
+
+
+class _ConstrainedField(Protocol):
+    db_constraint: bool
+
+
+def _db_index(field: SchemaField) -> bool | None:
+    # Field.db_index is present in Django, but its stub omits the attribute.
+    return cast(_IndexedField, field).db_index
+
+
+def _db_constraint(field: SchemaField) -> bool:
+    # Call this only for relation fields that support database constraints.
+    return cast(_ConstrainedField, field).db_constraint
+
+
+def _model_field(model: type[Model], name: str) -> SchemaField:
+    # Intermediary-model field names identify forward ForeignKey fields.
+    return cast(SchemaField, model._meta.get_field(name))
+
+
+def _through_model(field: SchemaField) -> type[Model]:
+    # Callers select many-to-many fields from Django's resolved model metadata.
+    through = cast(ManyToManyField[Model, Model], field).remote_field.through
+    if through is None:
+        raise ValueError("Expected a resolved many-to-many model.")
+    return through
+
 
 # The table-remake algorithm follows Django 6.0.7's SQLite backend. Constraint
 # state management and default quoting are local Turso implementations.
@@ -25,12 +69,16 @@ from .features import DatabaseFeatures
 class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
     """Edit schemas using Turso's SQLite-compatible DDL surface."""
 
+    connection: DatabaseWrapper
+    deferred_sql: list[Statement | str]
+
     sql_delete_table = "DROP TABLE %(table)s"
     sql_create_inline_fk = (
         "REFERENCES %(to_table)s (%(to_column)s) %(on_delete_db)s DEFERRABLE INITIALLY DEFERRED"
     )
     sql_create_unique = "CREATE UNIQUE INDEX %(name)s ON %(table)s (%(columns)s)"
     sql_delete_unique = "DROP INDEX %(name)s"
+    # Django permits None for unsupported DDL; these stubs require strings.
     sql_create_fk = None  # type: ignore[assignment]
     sql_create_column_inline_fk = sql_create_inline_fk
     sql_alter_table_comment = None  # type: ignore[assignment]
@@ -41,7 +89,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
 
     def _restore_transaction_mode(self) -> None:
         if self._original_transaction_mode is not None:
-            self.connection.transaction_mode = self._original_transaction_mode  # type: ignore[attr-defined]
+            self.connection.transaction_mode = self._original_transaction_mode
             self._original_transaction_mode = None
 
     def _foreign_key_state(self) -> int:
@@ -64,7 +112,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             )
 
     def _dispose_unrestorable_connection(self) -> None:
-        self.connection._force_close()  # type: ignore[attr-defined]
+        self.connection._force_close()
 
     def _restore_foreign_key_state(self) -> None:
         if self._original_foreign_keys is None:
@@ -99,7 +147,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
                 self._set_foreign_key_state(False)
             if getattr(self.connection, "transaction_mode", None) == "CONCURRENT":
                 self._original_transaction_mode = "CONCURRENT"
-                self.connection.transaction_mode = "IMMEDIATE"  # type: ignore[attr-defined]
+                self.connection.transaction_mode = "IMMEDIATE"
             return super().__enter__()
         except BaseException as primary:
             try:
@@ -162,7 +210,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         if schema_error is not None:
             raise schema_error.with_traceback(schema_traceback)
 
-    def quote_value(self, value: Any) -> str:
+    def quote_value(self, value: object) -> str:
         """Quote a Python value without stdlib SQLite adapter registration."""
 
         if value is None:
@@ -185,22 +233,26 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             return "'%s'" % value.replace("'", "''")
         raise ValueError(f"Unsupported Turso schema default type: {type(value).__name__}.")
 
-    def prepare_default(self, value: Any) -> str:
+    def prepare_default(self, value: object) -> str:
         return self.quote_value(value)
 
     def _remake_table(
         self,
-        model: Any,
-        create_field: Any = None,
-        delete_field: Any = None,
-        alter_fields: list[tuple[Any, Any]] | None = None,
+        model: type[Model],
+        create_field: SchemaField | None = None,
+        delete_field: SchemaField | None = None,
+        alter_fields: list[tuple[SchemaField, SchemaField]] | None = None,
     ) -> None:
         """Recreate a table with an updated definition and copy its data."""
 
-        def is_self_referential(field: Any) -> bool:
-            return field.is_relation and field.remote_field.model is model
+        def is_self_referential(field: SchemaField) -> bool:
+            return (
+                field.is_relation
+                and field.remote_field is not None
+                and field.remote_field.model is model
+            )
 
-        body = {
+        body: dict[str, SchemaField] = {
             field.name: field.clone() if is_self_referential(field) else field
             for field in model._meta.local_concrete_fields
         }
@@ -209,20 +261,20 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             body[primary_key.name] = primary_key.clone()
 
         mapping = {
-            field.column: self.quote_name(field.column)
+            _column(field): self.quote_name(_column(field))
             for field in model._meta.local_concrete_fields
             if field.generated is False
         }
         rename_mapping: dict[str, str] = {}
         alter_fields = alter_fields or []
-        if getattr(create_field, "primary_key", False) or any(
-            getattr(new_field, "primary_key", False) for _, new_field in alter_fields
+        if (create_field is not None and create_field.primary_key) or any(
+            new_field.primary_key for _, new_field in alter_fields
         ):
             for name, field in list(body.items()):
                 if field.primary_key and not any(
                     name == new_field.name for _, new_field in alter_fields
                 ):
-                    original_column = field.column
+                    original_column = _column(field)
                     field = field.clone()
                     body[name] = field
                     field.primary_key = False
@@ -237,13 +289,13 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
                 and not create_field.generated
                 and create_field.concrete
             ):
-                mapping[create_field.column] = self.prepare_default(
+                mapping[_column(create_field)] = self.prepare_default(
                     self.effective_default(create_field)
                 )
 
         for old_field, new_field in alter_fields:
             body.pop(old_field.name, None)
-            mapping.pop(old_field.column, None)
+            mapping.pop(_column(old_field), None)
             body[new_field.name] = new_field
             rename_mapping[old_field.name] = new_field.name
             if new_field.generated:
@@ -253,21 +305,19 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
                     default = self.prepare_default(self.effective_default(new_field))
                 else:
                     default, _ = self.db_default_sql(new_field)
-                mapping[new_field.column] = "coalesce(%(col)s, %(default)s)" % {
-                    "col": self.quote_name(old_field.column),
+                mapping[_column(new_field)] = "coalesce(%(col)s, %(default)s)" % {
+                    "col": self.quote_name(_column(old_field)),
                     "default": default,
                 }
             else:
-                mapping[new_field.column] = self.quote_name(old_field.column)
+                mapping[_column(new_field)] = self.quote_name(_column(old_field))
 
         if delete_field:
             del body[delete_field.name]
-            mapping.pop(delete_field.column, None)
-            if (
-                delete_field.many_to_many
-                and delete_field.remote_field.through._meta.auto_created
-            ):
-                self.delete_model(delete_field.remote_field.through)
+            if delete_field.column is not None:
+                mapping.pop(delete_field.column, None)
+            if delete_field.many_to_many and _through_model(delete_field)._meta.auto_created:
+                self.delete_model(_through_model(delete_field))
                 return
 
         apps = Apps()
@@ -277,14 +327,12 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         ]
         indexes = model._meta.indexes
         if delete_field:
-            indexes = [
-                index for index in indexes if delete_field.name not in index.fields
-            ]
+            indexes = [index for index in indexes if delete_field.name not in index.fields]
         constraints = list(model._meta.constraints)
 
         # Register the original-table model in the temporary app registry.
         # This lets relations resolve when the replacement model is built.
-        original_body = copy.deepcopy(body)
+        original_body: dict[str, object] = copy.deepcopy(dict[str, object](body))
         original_meta_contents = {
             "app_label": model._meta.app_label,
             "db_table": model._meta.db_table,
@@ -296,9 +344,9 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         original_meta = type("Meta", (), original_meta_contents)
         original_body["Meta"] = original_meta
         original_body["__module__"] = model.__module__
-        type(model._meta.object_name, model.__bases__, original_body)
+        type(model._meta.object_name or model.__name__, model.__bases__, original_body)
 
-        replacement_body = copy.deepcopy(body)
+        replacement_body: dict[str, object] = copy.deepcopy(dict[str, object](body))
         replacement_meta_contents = {
             "app_label": model._meta.app_label,
             "db_table": "new__%s" % strip_quotes(model._meta.db_table),
@@ -310,7 +358,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         replacement_meta = type("Meta", (), replacement_meta_contents)
         replacement_body["Meta"] = replacement_meta
         replacement_body["__module__"] = model.__module__
-        new_model: Any = type(
+        new_model: type[Model] = type(
             "New%s" % model._meta.object_name, model.__bases__, replacement_body
         )
 
@@ -337,7 +385,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             self.execute(sql)
         self.deferred_sql = []
 
-    def delete_model(self, model: Any, handle_autom2m: bool = True) -> None:
+    def delete_model(self, model: type[Model], handle_autom2m: bool = True) -> None:
         if handle_autom2m:
             super().delete_model(model)
             return
@@ -346,9 +394,9 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             if isinstance(sql, Statement) and sql.references_table(model._meta.db_table):
                 self.deferred_sql.remove(sql)
 
-    def add_field(self, model: Any, field: Any) -> None:
-        if field.many_to_many and field.remote_field.through._meta.auto_created:
-            self.create_model(field.remote_field.through)
+    def add_field(self, model: type[Model], field: SchemaField) -> None:
+        if field.many_to_many and _through_model(field)._meta.auto_created:
+            self.create_model(_through_model(field))
         elif isinstance(field, CompositePrimaryKey):
             return
         else:
@@ -357,16 +405,16 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             # nullable field so Django's nullability contract remains true.
             self._remake_table(model, create_field=field)
 
-    def remove_field(self, model: Any, field: Any) -> None:
+    def remove_field(self, model: type[Model], field: SchemaField) -> None:
         if field.many_to_many:
-            if field.remote_field.through._meta.auto_created:
-                self.delete_model(field.remote_field.through)
+            if _through_model(field)._meta.auto_created:
+                self.delete_model(_through_model(field))
         elif (
-            cast(DatabaseFeatures, self.connection.features).can_alter_table_drop_column
+            self.connection.features.can_alter_table_drop_column
             and not field.primary_key
             and not field.unique
-            and not field.db_index
-            and not (field.remote_field and field.db_constraint)
+            and not _db_index(field)
+            and not (field.remote_field and _db_constraint(field))
         ):
             super().remove_field(model, field)
         elif field.db_parameters(connection=self.connection)["type"] is not None:
@@ -374,26 +422,27 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
 
     def _alter_field(
         self,
-        model: Any,
-        old_field: Any,
-        new_field: Any,
+        model: type[Model],
+        old_field: SchemaField,
+        new_field: SchemaField,
         old_type: str,
         new_type: str,
-        old_db_params: dict[str, Any],
-        new_db_params: dict[str, Any],
+        old_db_params: dict[str, str | None],
+        new_db_params: dict[str, str | None],
         strict: bool = False,
     ) -> None:
         if (
-            old_field.column != new_field.column
-            and old_field.db_index == new_field.db_index
+            _column(old_field) != _column(new_field)
+            and _db_index(old_field) == _db_index(new_field)
             and self.column_sql(model, old_field) == self.column_sql(model, new_field)
             and not (
                 old_field.remote_field
-                and old_field.db_constraint
+                and _db_constraint(old_field)
                 or new_field.remote_field
-                and new_field.db_constraint
+                and _db_constraint(new_field)
             )
         ):
+            # Django provides this schema method, but its stub omits it.
             self.execute(
                 self._rename_field_sql(  # type: ignore[attr-defined]
                     model._meta.db_table, old_field, new_field, new_type
@@ -402,7 +451,7 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
             for sql in self.deferred_sql:
                 if isinstance(sql, Statement):
                     sql.rename_column_references(
-                        model._meta.db_table, old_field.column, new_field.column
+                        model._meta.db_table, _column(old_field), _column(new_field)
                     )
             return
 
@@ -412,9 +461,9 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         if new_field.unique and (
             old_type != new_type
             or old_collation != new_collation
-            or old_field.column != new_field.column
+            or _column(old_field) != _column(new_field)
         ):
-            related_models = set()
+            related_models: set[type[Model]] = set()
             opts = new_field.model._meta
             for remote_field in opts.related_objects:
                 if remote_field.related_model == model:
@@ -422,67 +471,60 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
                 if not remote_field.many_to_many:
                     if remote_field.field_name == new_field.name:
                         related_models.add(remote_field.related_model)
-                elif new_field.primary_key and remote_field.through._meta.auto_created:
-                    related_models.add(remote_field.through)
+                elif new_field.primary_key:
+                    # The many_to_many flag identifies this resolved relation type.
+                    through = cast(ManyToManyRel, remote_field).through
+                    if through is not None and through._meta.auto_created:
+                        related_models.add(through)
             if new_field.primary_key:
                 for many_to_many in opts.many_to_many:
                     if many_to_many.related_model == model:
                         continue
-                    if many_to_many.remote_field.through._meta.auto_created:
-                        related_models.add(many_to_many.remote_field.through)
+                    if _through_model(many_to_many)._meta.auto_created:
+                        related_models.add(_through_model(many_to_many))
             for related_model in related_models:
                 self._remake_table(related_model)
 
     def _alter_many_to_many(
-        self, model: Any, old_field: Any, new_field: Any, strict: bool
+        self,
+        model: type[Model],
+        old_field: ManyToManyField[Model, Model],
+        new_field: ManyToManyField[Model, Model],
+        strict: bool,
     ) -> None:
-        if (
-            old_field.remote_field.through._meta.db_table
-            == new_field.remote_field.through._meta.db_table
-        ):
+        if _through_model(old_field)._meta.db_table == _through_model(new_field)._meta.db_table:
             self._remake_table(
-                old_field.remote_field.through,
+                _through_model(old_field),
                 alter_fields=[
                     (
-                        old_field.remote_field.through._meta.get_field(
-                            old_field.m2m_reverse_field_name()
-                        ),
-                        new_field.remote_field.through._meta.get_field(
-                            new_field.m2m_reverse_field_name()
-                        ),
+                        _model_field(_through_model(old_field), old_field.m2m_reverse_field_name()),
+                        _model_field(_through_model(new_field), new_field.m2m_reverse_field_name()),
                     ),
                     (
-                        old_field.remote_field.through._meta.get_field(
-                            old_field.m2m_field_name()
-                        ),
-                        new_field.remote_field.through._meta.get_field(
-                            new_field.m2m_field_name()
-                        ),
+                        _model_field(_through_model(old_field), old_field.m2m_field_name()),
+                        _model_field(_through_model(new_field), new_field.m2m_field_name()),
                     ),
                 ],
             )
             return
 
-        self.create_model(new_field.remote_field.through)
+        self.create_model(_through_model(new_field))
         self.execute(
             "INSERT INTO %s (%s) SELECT %s FROM %s"
             % (
-                self.quote_name(new_field.remote_field.through._meta.db_table),
-                ", ".join(
-                    ["id", new_field.m2m_column_name(), new_field.m2m_reverse_name()]
-                ),
-                ", ".join(
-                    ["id", old_field.m2m_column_name(), old_field.m2m_reverse_name()]
-                ),
-                self.quote_name(old_field.remote_field.through._meta.db_table),
+                self.quote_name(_through_model(new_field)._meta.db_table),
+                ", ".join(["id", new_field.m2m_column_name(), new_field.m2m_reverse_name()]),
+                ", ".join(["id", old_field.m2m_column_name(), old_field.m2m_reverse_name()]),
+                self.quote_name(_through_model(old_field)._meta.db_table),
             )
         )
-        self.delete_model(old_field.remote_field.through)
+        self.delete_model(_through_model(old_field))
 
-    def add_constraint(self, model: Any, constraint: Any) -> None:
+    def add_constraint(self, model: type[Model], constraint: BaseConstraint) -> None:
         if isinstance(constraint, UniqueConstraint) and (
             constraint.condition
             or constraint.contains_expressions
+            # UniqueConstraint.include is present in Django, but absent from its stub.
             or constraint.include  # type: ignore[attr-defined]
             or constraint.deferrable
         ):
@@ -490,10 +532,11 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
         else:
             self._remake_table(model)
 
-    def remove_constraint(self, model: Any, constraint: Any) -> None:
+    def remove_constraint(self, model: type[Model], constraint: BaseConstraint) -> None:
         if isinstance(constraint, UniqueConstraint) and (
             constraint.condition
             or constraint.contains_expressions
+            # UniqueConstraint.include is present in Django, but absent from its stub.
             or constraint.include  # type: ignore[attr-defined]
             or constraint.deferrable
         ):

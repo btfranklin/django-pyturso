@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime
 import decimal
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -20,8 +19,10 @@ from django.db.migrations.operations import (
     RenameField,
     RunSQL,
 )
+from django.db.migrations.operations.base import Operation
 from django.db.migrations.state import ProjectState
 from django.test.utils import isolate_apps
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.schema import DatabaseSchemaEditor
 
@@ -35,7 +36,7 @@ def _foreign_key_state() -> int:
 
 
 def _apply_operation(
-    state: ProjectState, operation: Any, app_label: str = "schema_tests"
+    state: ProjectState, operation: Operation, app_label: str = "schema_tests"
 ) -> ProjectState:
     next_state = state.clone()
     operation.state_forwards(app_label, next_state)
@@ -45,7 +46,9 @@ def _apply_operation(
 
 
 @pytest.mark.core
-def test_schema_editor_restores_foreign_keys_after_success(django_db_blocker: Any) -> None:
+def test_schema_editor_restores_foreign_keys_after_success(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     with django_db_blocker.unblock():
         assert _foreign_key_state() == 1
         with connection.schema_editor():
@@ -54,7 +57,9 @@ def test_schema_editor_restores_foreign_keys_after_success(django_db_blocker: An
 
 
 @pytest.mark.core
-def test_schema_editor_preserves_an_originally_disabled_state(django_db_blocker: Any) -> None:
+def test_schema_editor_preserves_an_originally_disabled_state(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             cursor.execute("PRAGMA foreign_keys = OFF")
@@ -70,7 +75,7 @@ def test_schema_editor_preserves_an_originally_disabled_state(django_db_blocker:
 
 
 @pytest.mark.core
-def test_schema_editor_rejects_entry_inside_atomic(django_db_blocker: Any) -> None:
+def test_schema_editor_rejects_entry_inside_atomic(django_db_blocker: DjangoDbBlocker) -> None:
     with django_db_blocker.unblock():
         with transaction.atomic():
             with pytest.raises(NotSupportedError, match="schema editing must begin outside"):
@@ -81,7 +86,9 @@ def test_schema_editor_rejects_entry_inside_atomic(django_db_blocker: Any) -> No
 
 @pytest.mark.core
 @isolate_apps()
-def test_constraint_failure_rolls_back_ddl_and_restores_state(django_db_blocker: Any) -> None:
+def test_constraint_failure_rolls_back_ddl_and_restores_state(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     class FailedModel(models.Model):
         value = models.IntegerField()
 
@@ -104,7 +111,7 @@ def test_constraint_failure_rolls_back_ddl_and_restores_state(django_db_blocker:
 @pytest.mark.core
 @pytest.mark.parametrize("foreign_keys", [0, 1])
 def test_deferred_ddl_failure_rolls_back_and_leaves_connection_usable(
-    django_db_blocker: Any, foreign_keys: int
+    django_db_blocker: DjangoDbBlocker, foreign_keys: int
 ) -> None:
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
@@ -148,7 +155,7 @@ def test_deferred_ddl_failure_rolls_back_and_leaves_connection_usable(
 @pytest.mark.core
 @pytest.mark.parametrize("index_kind", ["field", "explicit"])
 def test_migration_renames_pending_index_columns(
-    django_db_blocker: Any, index_kind: str
+    django_db_blocker: DjangoDbBlocker, index_kind: str
 ) -> None:
     class RenameMigration(Migration):
         operations = [
@@ -180,9 +187,7 @@ def test_migration_renames_pending_index_columns(
         try:
             assert list(model.objects.values_list("renamed", flat=True)) == [7]
             with connection.cursor() as cursor:
-                constraints = connection.introspection.get_constraints(
-                    cursor, model._meta.db_table
-                )
+                constraints = connection.introspection.get_constraints(cursor, model._meta.db_table)
             indexes = [details for details in constraints.values() if details["index"]]
             assert len(indexes) == 1
             assert indexes[0]["columns"] == ["renamed"]
@@ -197,7 +202,7 @@ def test_migration_renames_pending_index_columns(
 @pytest.mark.parametrize("old_index", [False, True])
 @pytest.mark.parametrize("same_editor", [False, True])
 def test_column_rename_and_index_change_preserve_data_and_index_state(
-    django_db_blocker: Any, old_index: bool, same_editor: bool
+    django_db_blocker: DjangoDbBlocker, old_index: bool, same_editor: bool
 ) -> None:
     class CreateRenameMigration(Migration):
         operations = [
@@ -260,7 +265,7 @@ def test_column_rename_and_index_change_preserve_data_and_index_state(
     ],
 )
 def test_referenced_column_rename_and_attribute_change_run_forward_and_backward(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
     old_null: bool,
     old_index: bool,
     new_null: bool,
@@ -366,7 +371,7 @@ def test_referenced_column_rename_and_attribute_change_run_forward_and_backward(
 
 @pytest.mark.core
 def test_migration_operations_remake_tables_and_preserve_data(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     state = ProjectState()
     create = CreateModel(
@@ -421,9 +426,7 @@ def test_migration_operations_remake_tables_and_preserve_data(
             )
 
             record_model = state.apps.get_model("schema_tests", "Record")
-            assert list(record_model.objects.values_list("title", "status")) == [
-                ("alpha", "ready")
-            ]
+            assert list(record_model.objects.values_list("title", "status")) == [("alpha", "ready")]
             with pytest.raises(IntegrityError):
                 record_model.objects.create(title="bad", status="invalid")
 
@@ -439,7 +442,7 @@ def test_migration_operations_remake_tables_and_preserve_data(
 
 @pytest.mark.core
 def test_table_remake_preserves_named_unique_constraint(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     state = ProjectState()
     create = CreateModel(
@@ -451,9 +454,7 @@ def test_table_remake_preserves_named_unique_constraint(
         options={
             "db_table": "schema_unique_record",
             "constraints": [
-                models.UniqueConstraint(
-                    fields=["title"], name="schema_unique_record_title_uq"
-                )
+                models.UniqueConstraint(fields=["title"], name="schema_unique_record_title_uq")
             ],
         },
     )
@@ -487,7 +488,7 @@ def test_table_remake_preserves_named_unique_constraint(
 
 
 @pytest.mark.core
-def test_adding_nullable_field_preserves_nullability(django_db_blocker: Any) -> None:
+def test_adding_nullable_field_preserves_nullability(django_db_blocker: DjangoDbBlocker) -> None:
     state = ProjectState()
     create = CreateModel(
         name="NullableRecord",
@@ -524,7 +525,7 @@ def test_adding_nullable_field_preserves_nullability(django_db_blocker: Any) -> 
 
 
 @pytest.mark.core
-def test_create_model_migration_runs_backward(django_db_blocker: Any) -> None:
+def test_create_model_migration_runs_backward(django_db_blocker: DjangoDbBlocker) -> None:
     before = ProjectState()
     operation = CreateModel(
         name="Temporary",
@@ -609,6 +610,6 @@ def test_unreadable_initial_state_disposes_connection(
         (datetime.date(2026, 7, 13), "'2026-07-13'"),
     ],
 )
-def test_quote_value_uses_local_turso_literals(value: Any, sql: str) -> None:
+def test_quote_value_uses_local_turso_literals(value: object, sql: str) -> None:
     editor = object.__new__(DatabaseSchemaEditor)
     assert editor.quote_value(value) == sql

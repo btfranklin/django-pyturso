@@ -5,13 +5,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from itertools import count
-from typing import Any, cast
 
 import pytest
 from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper, TursoCursorWrapper
+from tests.support import parameter_cursor
 
 ALIASES = count()
 PROPERTY_SETTINGS = settings(
@@ -23,12 +24,12 @@ PROPERTY_SETTINGS = settings(
 
 
 @pytest.fixture(autouse=True)
-def unblock_database_access(django_db_blocker: Any) -> Iterator[None]:
+def unblock_database_access(django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     with django_db_blocker.unblock():
         yield
 
 
-def wrapper_settings() -> dict[str, Any]:
+def wrapper_settings() -> dict[str, object]:
     return {
         "ENGINE": "django_pyturso",
         "NAME": ":memory:",
@@ -66,11 +67,13 @@ identifier = st.text(
     min_size=1,
     max_size=24,
 ).filter(
-    lambda value: not (
-        (value.startswith('"') and value.endswith('"'))
-        or value.casefold().startswith("sqlite_")
+    lambda value: (
+        not (
+            (value.startswith('"') and value.endswith('"'))
+            or value.casefold().startswith("sqlite_")
+        )
+        and value == value.casefold()
     )
-    and value == value.casefold()
 )
 driver_scalar = st.one_of(
     st.none(),
@@ -89,8 +92,7 @@ def test_format_placeholder_conversion_is_local_and_preserves_escaped_percent(
 ) -> None:
     query = " | ".join(segments)
     expected = " | ".join(
-        "?" if segment == "%s" else "%" if segment == "%%" else segment
-        for segment in segments
+        "?" if segment == "%s" else "%" if segment == "%%" else segment for segment in segments
     )
 
     assert TursoCursorWrapper.convert_query(query) == expected
@@ -116,7 +118,7 @@ def test_named_placeholder_conversion_uses_driver_bindings(names: list[str]) -> 
 @given(value=driver_scalar)
 def test_public_cursor_round_trips_driver_scalars(value: object) -> None:
     with memory_wrapper() as wrapper, wrapper.cursor() as cursor:
-        cursor.execute("SELECT %s", (cast(Any, value),))
+        parameter_cursor(cursor).execute("SELECT %s", (value,))
         returned = cursor.fetchone()[0]
 
     expected = int(value) if isinstance(value, bool) else value
@@ -126,9 +128,7 @@ def test_public_cursor_round_trips_driver_scalars(value: object) -> None:
 @PROPERTY_SETTINGS
 @given(table_name=identifier, column_name=identifier)
 @example(table_name="table_%s_%%", column_name="column_%(value)s_%s_%%")
-def test_quoted_unicode_identifiers_round_trip(
-    table_name: str, column_name: str
-) -> None:
+def test_quoted_unicode_identifiers_round_trip(table_name: str, column_name: str) -> None:
     with memory_wrapper() as wrapper:
         quoted_table = wrapper.ops.quote_name(table_name)
         quoted_column = wrapper.ops.quote_name(column_name)

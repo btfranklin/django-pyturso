@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import decimal
 import uuid
-from typing import Any, cast
+from typing import Never, cast
 
 import pytest
 from django.core.management.color import no_style
@@ -38,7 +38,7 @@ pytestmark = [pytest.mark.core, pytest.mark.django_db]
 OPS = cast(DatabaseOperations, connection.ops)
 
 
-def _raw_scalar(sql: str, params: tuple[Any, ...] = ()) -> Any:
+def _raw_scalar(sql: str, params: tuple[object, ...] = ()) -> object:
     connection.ensure_connection()
     raw_connection = connection.connection
     assert raw_connection is not None
@@ -373,7 +373,9 @@ def test_value_adaptation_nulls_timezone_and_errors() -> None:
         (models.CharField(max_length=10), None),
     ],
 )
-def test_converter_registration(field: models.Field[Any, Any], converter_name: str | None) -> None:
+def test_converter_registration(
+    field: models.Field[Never, object], converter_name: str | None
+) -> None:
     converters = OPS.get_db_converters(Value(None, output_field=field))
     names = [converter.__name__ for converter in converters]
     if converter_name is None:
@@ -390,8 +392,10 @@ def test_value_converters_cover_existing_values_strings_and_nulls() -> None:
     time_value = moment.time()
     identifier = uuid.UUID("018f1c7d-2a9b-7d64-bf10-123456789abc")
     assert ops.convert_datetimefield_value(None, expression, connection) is None
-    assert ops.convert_datetimefield_value(moment, expression, connection).tzinfo is not None
-    assert ops.convert_datetimefield_value("2026-07-13 18:42:31", expression, connection).tzinfo
+    converted_moment = ops.convert_datetimefield_value(moment, expression, connection)
+    assert converted_moment is not None and converted_moment.tzinfo is not None
+    converted_text = ops.convert_datetimefield_value("2026-07-13 18:42:31", expression, connection)
+    assert converted_text is not None and converted_text.tzinfo
     assert ops.convert_datefield_value("2026-07-13", expression, connection) == date_value
     assert ops.convert_datefield_value(date_value, expression, connection) is date_value
     assert ops.convert_datefield_value(None, expression, connection) is None
@@ -411,13 +415,13 @@ def test_decimal_converters_cover_col_and_non_col_paths() -> None:
     ops = OPS
     field = models.DecimalField(max_digits=8, decimal_places=2)
     col_converter = ops.get_decimalfield_converter(Col("table", field))
-    assert col_converter(None, None, connection) is None
-    assert col_converter(1.235, None, connection) == decimal.Decimal("1.24")
-    assert col_converter("1.20", None, connection) == decimal.Decimal("1.20")
+    assert col_converter(None, Value(None), connection) is None
+    assert col_converter(1.235, Value(None), connection) == decimal.Decimal("1.24")
+    assert col_converter("1.20", Value(None), connection) == decimal.Decimal("1.20")
     value_converter = ops.get_decimalfield_converter(Value(None, output_field=field))
-    assert value_converter(None, None, connection) is None
-    assert value_converter("1.20", None, connection) == decimal.Decimal("1.20")
-    assert isinstance(value_converter(1.25, None, connection), decimal.Decimal)
+    assert value_converter(None, Value(None), connection) is None
+    assert value_converter("1.20", Value(None), connection) == decimal.Decimal("1.20")
+    assert isinstance(value_converter(1.25, Value(None), connection), decimal.Decimal)
 
 
 def test_expression_combination_duration_rejection_and_integer_ranges() -> None:

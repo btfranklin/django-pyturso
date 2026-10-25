@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Never
 
 import pytest
 from django.db import IntegrityError, models, transaction
 from django.db.migrations.operations import AddField, AlterField, CreateModel
+from django.db.migrations.operations.base import Operation
 from django.db.migrations.state import ProjectState
+from django.db.models.deletion import Collector, DatabaseOnDelete
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper
 from tests.core.transactions.test_state_machine import registered_wrapper
+
+type OnDelete = (
+    DatabaseOnDelete
+    | Callable[[Collector, models.Field[Never, object], models.QuerySet[models.Model], str], None]
+)
 
 pytestmark = pytest.mark.core
 APP_LABEL = "deletion_tests"
@@ -26,14 +35,15 @@ ACTIONS = [
 ]
 
 
-def _foreign_key(action: Any, *, db_default: bool = False) -> Any:
-    options: dict[str, Any] = {"db_default": 0} if db_default else {}
-    return models.ForeignKey(f"{APP_LABEL}.Parent", action, null=True, **options)
+def _foreign_key(
+    action: OnDelete, *, db_default: bool = False
+) -> models.ForeignKey[int | models.Model | None, models.Model | None]:
+    if db_default:
+        return models.ForeignKey(f"{APP_LABEL}.Parent", action, null=True, db_default=0)
+    return models.ForeignKey(f"{APP_LABEL}.Parent", action, null=True)
 
 
-def _apply(
-    wrapper: DatabaseWrapper, state: ProjectState, operation: Any
-) -> ProjectState:
+def _apply(wrapper: DatabaseWrapper, state: ProjectState, operation: Operation) -> ProjectState:
     after = state.clone()
     operation.state_forwards(APP_LABEL, after)
     with wrapper.schema_editor() as editor:
@@ -43,7 +53,7 @@ def _apply(
 
 def _reverse(
     wrapper: DatabaseWrapper,
-    operation: Any,
+    operation: Operation,
     before: ProjectState,
     after: ProjectState,
 ) -> None:
@@ -51,7 +61,9 @@ def _reverse(
         operation.database_backwards(APP_LABEL, editor, after, before)
 
 
-def _create(wrapper: DatabaseWrapper, field: Any = None) -> ProjectState:
+def _create(
+    wrapper: DatabaseWrapper, field: models.Field[Never, object] | None = None
+) -> ProjectState:
     state = _apply(
         wrapper,
         ProjectState(),
@@ -61,7 +73,7 @@ def _create(wrapper: DatabaseWrapper, field: Any = None) -> ProjectState:
             options={"db_table": "deletion_parent"},
         ),
     )
-    fields: list[tuple[str, models.Field[Any, Any]]] = [
+    fields: list[tuple[str, models.Field[Never, object]]] = [
         ("id", models.IntegerField(primary_key=True)),
         ("value", models.IntegerField(default=7)),
     ]
@@ -70,9 +82,7 @@ def _create(wrapper: DatabaseWrapper, field: Any = None) -> ProjectState:
     state = _apply(
         wrapper,
         state,
-        CreateModel(
-            name="Child", fields=fields, options={"db_table": "deletion_child"}
-        ),
+        CreateModel(name="Child", fields=fields, options={"db_table": "deletion_child"}),
     )
     parent = state.apps.get_model(APP_LABEL, "Parent")
     parent.objects.using(wrapper.alias).create(id=0)
@@ -90,11 +100,11 @@ def _assert_action(wrapper: DatabaseWrapper, action_sql: str) -> None:
         assert cursor.fetchall() == []
 
 
-def _child_rows(wrapper: DatabaseWrapper, state: ProjectState) -> list[Any]:
+def _child_rows(wrapper: DatabaseWrapper, state: ProjectState) -> list[tuple[object, ...]]:
     child = state.apps.get_model(APP_LABEL, "Child")
-    return list(child.objects.using(wrapper.alias).order_by("id").values_list(
-        "id", "parent_id", "value"
-    ))
+    return list(
+        child.objects.using(wrapper.alias).order_by("id").values_list("id", "parent_id", "value")
+    )
 
 
 def _assert_delete(
@@ -143,15 +153,16 @@ def _assert_python_cascade(wrapper: DatabaseWrapper, state: ProjectState) -> Non
 @pytest.mark.parametrize(("action", "action_sql"), ACTIONS)
 def test_create_remake_and_reverse_action_migrations(
     tmp_path: Path,
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
     options: dict[str, str],
-    action: Any,
+    action: OnDelete,
     action_sql: str,
 ) -> None:
     db_default = action_sql == "SET DEFAULT"
-    with django_db_blocker.unblock(), registered_wrapper(
-        NAME=tmp_path / "deletion.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        registered_wrapper(NAME=tmp_path / "deletion.db", OPTIONS=options) as wrapper,
+    ):
         state = _create(wrapper, _foreign_key(action, db_default=db_default))
         child = state.apps.get_model(APP_LABEL, "Child")
         child.objects.using(wrapper.alias).create(id=1, parent_id=None)
@@ -187,14 +198,15 @@ def test_create_remake_and_reverse_action_migrations(
 @pytest.mark.parametrize(("action", "action_sql"), ACTIONS)
 def test_add_foreign_key_and_reverse_migration(
     tmp_path: Path,
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
     options: dict[str, str],
-    action: Any,
+    action: OnDelete,
     action_sql: str,
 ) -> None:
-    with django_db_blocker.unblock(), registered_wrapper(
-        NAME=tmp_path / "add_deletion.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        registered_wrapper(NAME=tmp_path / "add_deletion.db", OPTIONS=options) as wrapper,
+    ):
         before = _create(wrapper)
         child = before.apps.get_model(APP_LABEL, "Child")
         child.objects.using(wrapper.alias).create(id=1)
@@ -203,16 +215,14 @@ def test_add_foreign_key_and_reverse_migration(
         )
         after = _apply(wrapper, before, operation)
         child = after.apps.get_model(APP_LABEL, "Child")
-        assert _child_rows(wrapper, after) == [
-            (1, 0 if action_sql == "SET DEFAULT" else None, 7)
-        ]
+        assert _child_rows(wrapper, after) == [(1, 0 if action_sql == "SET DEFAULT" else None, 7)]
         _assert_delete(wrapper, after, action_sql, 10)
         _reverse(wrapper, operation, before, after)
         child = before.apps.get_model(APP_LABEL, "Child")
         expected_ids = [1] if action_sql == "CASCADE" else [1, 10]
-        assert list(child.objects.using(wrapper.alias).order_by("id").values_list(
-            "id", "value"
-        )) == [(row_id, 7) for row_id in expected_ids]
+        assert list(
+            child.objects.using(wrapper.alias).order_by("id").values_list("id", "value")
+        ) == [(row_id, 7) for row_id in expected_ids]
         with wrapper.cursor() as cursor:
             cursor.execute("PRAGMA foreign_key_list(deletion_child)")
             assert cursor.fetchall() == []

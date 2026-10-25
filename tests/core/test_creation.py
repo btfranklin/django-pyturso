@@ -2,12 +2,12 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 import turso
 from django.db import DatabaseError, NotSupportedError
 from django.db.transaction import TransactionManagementError
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper
 from django_pyturso.creation import DatabaseCreation
@@ -18,26 +18,26 @@ pytestmark = pytest.mark.core
 
 def _creation(*, name: object = ":memory:", test_name: object = None) -> DatabaseCreation:
     wrapper = DatabaseWrapper(wrapper_settings(NAME=name), "probe")
-    wrapper.settings_dict["TEST"]["NAME"] = test_name
-    return cast(DatabaseCreation, wrapper.creation)
+    wrapper.settings_dict["TEST"] = {"NAME": test_name}
+    return wrapper.creation
 
 
 def test_file_test_name_is_a_sibling(tmp_path: Path) -> None:
     wrapper = DatabaseWrapper(wrapper_settings(NAME=tmp_path / "app.db"), "probe")
-    creation = cast(DatabaseCreation, wrapper.creation)
+    creation = wrapper.creation
     assert creation._get_test_db_name() == str(tmp_path / "test_app.db")
 
 
 def test_memory_test_database_stays_exact_memory() -> None:
     wrapper = DatabaseWrapper(wrapper_settings(), "probe")
-    creation = cast(DatabaseCreation, wrapper.creation)
+    creation = wrapper.creation
     assert creation._get_test_db_name() == ":memory:"
     assert creation.test_db_signature() == (":memory:", "probe")
 
 
 def test_pathlike_memory_test_database_stays_exact_memory() -> None:
     wrapper = DatabaseWrapper(wrapper_settings(NAME=Path(":memory:")), "probe")
-    creation = cast(DatabaseCreation, wrapper.creation)
+    creation = wrapper.creation
 
     assert creation._get_test_db_name() == ":memory:"
     assert creation.test_db_signature() == (Path(":memory:"), "probe")
@@ -51,7 +51,7 @@ def test_file_destroy_removes_only_verified_artifacts(tmp_path: Path) -> None:
     for path in (database, wal, log, unrelated):
         path.write_text(path.name)
     wrapper = DatabaseWrapper(wrapper_settings(NAME=database), "probe")
-    creation = cast(DatabaseCreation, wrapper.creation)
+    creation = wrapper.creation
     creation._destroy_test_db(str(database), verbosity=0)
     assert not database.exists()
     assert not wal.exists()
@@ -93,7 +93,7 @@ def test_file_test_database_can_reopen_after_cleanup(
 
 def test_parallel_cloning_and_memory_mirrors_are_rejected() -> None:
     wrapper = DatabaseWrapper(wrapper_settings(), "probe")
-    creation = cast(DatabaseCreation, wrapper.creation)
+    creation = wrapper.creation
     with pytest.raises(NotSupportedError, match="parallel"):
         creation._clone_test_db("1", verbosity=0)
     with pytest.raises(NotSupportedError, match="file-backed"):
@@ -173,7 +173,7 @@ def test_creation_clone_destroy_and_mirror_branches(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("source_mode", ["memory", "file"])
 def test_connected_mirror_switches_to_the_primary_file(
-    tmp_path: Path, django_db_blocker: Any, source_mode: str
+    tmp_path: Path, django_db_blocker: DjangoDbBlocker, source_mode: str
 ) -> None:
     primary_name = tmp_path / "primary.db"
     primary = turso.connect(str(primary_name), isolation_level=None)
@@ -184,7 +184,7 @@ def test_connected_mirror_switches_to_the_primary_file(
         primary.close()
     source_name = ":memory:" if source_mode == "memory" else tmp_path / "source.db"
     creation = _creation(name=source_name)
-    wrapper = cast(DatabaseWrapper, creation.connection)
+    wrapper = creation.connection
     with django_db_blocker.unblock():
         try:
             with wrapper.cursor() as cursor:
@@ -204,10 +204,10 @@ def test_connected_mirror_switches_to_the_primary_file(
 @pytest.mark.parametrize("operation", ["create", "destroy", "mirror"])
 @pytest.mark.parametrize("invalid_context", ["atomic", "thread"])
 def test_test_database_switch_rejects_invalid_connection_context(
-    tmp_path: Path, django_db_blocker: Any, operation: str, invalid_context: str
+    tmp_path: Path, django_db_blocker: DjangoDbBlocker, operation: str, invalid_context: str
 ) -> None:
     creation = _creation()
-    wrapper = cast(DatabaseWrapper, creation.connection)
+    wrapper = creation.connection
 
     def switch() -> None:
         if operation == "create":

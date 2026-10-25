@@ -3,22 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from pytest_django.plugin import DjangoDbBlocker
 
 from django_pyturso.base import DatabaseWrapper
+from tests.support import physical_connection
 
 
 @pytest.fixture(autouse=True)
-def unblock_database_access(django_db_blocker: Any) -> Iterator[None]:
+def unblock_database_access(django_db_blocker: DjangoDbBlocker) -> Iterator[None]:
     with django_db_blocker.unblock():
         yield
 
 
-def wrapper_settings() -> dict[str, Any]:
+def wrapper_settings() -> dict[str, object]:
     return {
         "ENGINE": "django_pyturso",
         "NAME": ":memory:",
@@ -64,22 +65,22 @@ def test_manual_transaction_sequences_match_the_reference_model(
                 with wrapper.cursor() as cursor:
                     cursor.execute("INSERT INTO sequence_probe VALUES (%s)", (index,))
                 pending.append(index)
-                assert wrapper.connection.in_transaction is True
+                assert physical_connection(wrapper).in_transaction is True
             elif action == "read":
                 with wrapper.cursor() as cursor:
                     cursor.execute("SELECT value FROM sequence_probe ORDER BY rowid")
                     observed = [row[0] for row in cursor.fetchall()]
                 assert observed == [*committed, *pending]
-                assert wrapper.connection.in_transaction is True
+                assert physical_connection(wrapper).in_transaction is True
             elif action == "commit":
                 wrapper.commit()
                 committed.extend(pending)
                 pending.clear()
-                assert wrapper.connection.in_transaction is False
+                assert physical_connection(wrapper).in_transaction is False
             else:
                 wrapper.rollback()
                 pending.clear()
-                assert wrapper.connection.in_transaction is False
+                assert physical_connection(wrapper).in_transaction is False
             assert wrapper.autocommit is False
 
         wrapper.rollback()
@@ -89,6 +90,6 @@ def test_manual_transaction_sequences_match_the_reference_model(
             cursor.execute("SELECT value FROM sequence_probe ORDER BY rowid")
             observed = [row[0] for row in cursor.fetchall()]
         assert observed == committed
-        assert wrapper.connection.in_transaction is False
+        assert physical_connection(wrapper).in_transaction is False
     finally:
         wrapper._force_close()

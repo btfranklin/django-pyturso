@@ -1,10 +1,10 @@
 """RETURNING writes must finish before their transaction boundary."""
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from django.db import transaction
+from pytest_django.plugin import DjangoDbBlocker
 
 from tests.core.transactions.test_cursor_fetch import MODES
 from tests.core.transactions.test_state_machine import registered_wrapper
@@ -30,16 +30,17 @@ pytestmark = pytest.mark.core
     ids=["insert", "merge-cte", "upsert-cte", "multiple-ctes"],
 )
 def test_returning_write_obeys_original_atomic_boundary(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
     tmp_path: Path,
     options: dict[str, str],
     boundary: str,
     partial_fetch: bool,
     sql: str,
 ) -> None:
-    with django_db_blocker.unblock(), registered_wrapper(
-        NAME=tmp_path / "returning.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        registered_wrapper(NAME=tmp_path / "returning.db", OPTIONS=options) as wrapper,
+    ):
         wrapper.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY)")
         observed: list[list[tuple[int]]] = []
         with wrapper.cursor() as pending:
@@ -77,12 +78,16 @@ def test_returning_write_obeys_original_atomic_boundary(
     ],
 )
 def test_returning_write_is_complete_before_fetch(
-    django_db_blocker: Any, tmp_path: Path, options: dict[str, str], sql: str,
+    django_db_blocker: DjangoDbBlocker,
+    tmp_path: Path,
+    options: dict[str, str],
+    sql: str,
     expected: list[tuple[int]],
 ) -> None:
-    with django_db_blocker.unblock(), registered_wrapper(
-        NAME=tmp_path / "returning.db", OPTIONS=options
-    ) as wrapper:
+    with (
+        django_db_blocker.unblock(),
+        registered_wrapper(NAME=tmp_path / "returning.db", OPTIONS=options) as wrapper,
+    ):
         wrapper.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY)")
         wrapper.cursor().execute("INSERT INTO t VALUES(1),(2)")
         with wrapper.cursor() as pending:
@@ -90,7 +95,9 @@ def test_returning_write_is_complete_before_fetch(
             assert wrapper.cursor().execute("SELECT id FROM t ORDER BY id").fetchall() == expected
 
 
-def test_returning_results_follow_cursor_fetch_and_reuse_rules(django_db_blocker: Any) -> None:
+def test_returning_results_follow_cursor_fetch_and_reuse_rules(
+    django_db_blocker: DjangoDbBlocker,
+) -> None:
     with django_db_blocker.unblock(), registered_wrapper() as wrapper:
         wrapper.cursor().execute("CREATE TABLE t(id INTEGER PRIMARY KEY)")
         cursor = wrapper.cursor()
@@ -116,7 +123,7 @@ def test_returning_results_follow_cursor_fetch_and_reuse_rules(django_db_blocker
             cursor.cursor.fetchone()
 
 
-def test_large_select_does_not_require_sql_grouping(django_db_blocker: Any) -> None:
+def test_large_select_does_not_require_sql_grouping(django_db_blocker: DjangoDbBlocker) -> None:
     with django_db_blocker.unblock(), registered_wrapper() as wrapper:
         with wrapper.cursor() as cursor:
             cursor.execute("SELECT 1 WHERE 1 IN (" + ",".join(["%s"] * 6000) + ")", [1] * 6000)

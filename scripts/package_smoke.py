@@ -22,11 +22,12 @@ def main() -> None:
 
     from django.contrib.auth import get_user_model
     from django.core.management import call_command
-    from django.db import connection, transaction
+    from django.db import connections, transaction
 
     import django_pyturso
 
     assert Path(django_pyturso.__file__).is_relative_to(Path.cwd())
+    connection = connections["default"]
     call_command("migrate", verbosity=0)
     User = get_user_model()
     User.objects.create_user(username="installed-user", password="secret")

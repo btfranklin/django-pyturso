@@ -1,5 +1,4 @@
 """Execute the backend-neutral differential catalog in an isolated process."""
-# mypy: disable-error-code=misc
 
 # django-stubs cannot bind nested, runtime-defined model managers to their
 # model classes. Keep all other strict checks enabled for this subprocess tool.
@@ -11,9 +10,10 @@ import datetime
 import decimal
 import json
 from pathlib import Path
-from typing import Any, cast
 
 from django.conf import settings
+
+from tests.value_types import JSONValue, json_object, json_value
 
 
 def _configure(engine: str, database_name: str) -> None:
@@ -27,7 +27,7 @@ def _configure(engine: str, database_name: str) -> None:
     )
 
 
-def _canonical(value: Any) -> Any:
+def _canonical(value: object) -> JSONValue:
     if isinstance(value, decimal.Decimal):
         return format(value, "f")
     if isinstance(value, datetime.datetime):
@@ -40,10 +40,10 @@ def _canonical(value: Any) -> Any:
         return {str(key): _canonical(item) for key, item in sorted(value.items())}
     if isinstance(value, (list, tuple)):
         return [_canonical(item) for item in value]
-    return value
+    return json_value(value)
 
 
-def _run_catalog() -> dict[str, Any]:
+def _run_catalog() -> dict[str, JSONValue]:
     import django
 
     django.setup()
@@ -53,7 +53,7 @@ def _run_catalog() -> dict[str, Any]:
     from django.db.models.functions import Random
 
     class Author(models.Model):
-        objects = models.Manager["Author"]()
+        objects: models.Manager[Author] = models.Manager()
         name = models.CharField(max_length=40, unique=True)
 
         class Meta:
@@ -61,7 +61,7 @@ def _run_catalog() -> dict[str, Any]:
             db_table = "differential_author"
 
     class Record(models.Model):
-        objects = models.Manager["Record"]()
+        objects: models.Manager[Record] = models.Manager()
         author = models.ForeignKey(Author, on_delete=models.CASCADE)
         title = models.CharField(max_length=80)
         rank = models.IntegerField(null=True)
@@ -80,7 +80,7 @@ def _run_catalog() -> dict[str, Any]:
             indexes = [models.Index(fields=["rank"], name="differential_record_rank_idx")]
 
     class SchemaProbe(models.Model):
-        objects = models.Manager["SchemaProbe"]()
+        objects: models.Manager[SchemaProbe] = models.Manager()
         name = models.CharField(max_length=20)
 
         class Meta:
@@ -131,7 +131,7 @@ def _run_catalog() -> dict[str, Any]:
     )
     SchemaProbe.objects.create(name="preserved")
 
-    observations: dict[str, Any] = {}
+    observations: dict[str, object] = {}
 
     created = Record.objects.create(
         author=bob,
@@ -175,9 +175,7 @@ def _run_catalog() -> dict[str, Any]:
         has_active=Exists(Record.objects.filter(author=OuterRef("pk"), active=True)),
         latest_title=Subquery(latest_title),
     ).order_by("name")
-    observations["subqueries"] = list(
-        authors.values_list("name", "has_active", "latest_title")
-    )
+    observations["subqueries"] = list(authors.values_list("name", "has_active", "latest_title"))
 
     observations["json"] = {
         "first_item": list(
@@ -289,7 +287,7 @@ def _run_catalog() -> dict[str, Any]:
     else:
         observations["random_function"] = {"count": random_count, "status": "supported"}
 
-    return cast(dict[str, Any], _canonical(observations))
+    return json_object(_canonical(observations))
 
 
 def main() -> None:

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import NamedTuple
 
 import pytest
 
+from tests.value_types import JSONValue, load_json_object
+
 ROOT = Path(__file__).parents[2]
-FILE_INTEROP_RUNNER = Path(__file__).with_name("file_interop_runner.py")
 
 PARITY_SCENARIOS = (
     "crud",
@@ -25,6 +25,8 @@ PARITY_SCENARIOS = (
     "schema",
     "introspection",
 )
+
+
 class IntentionalDifference(NamedTuple):
     scenario_id: str
     sqlite_expected: dict[str, str | int]
@@ -45,7 +47,7 @@ INTENTIONAL_DIFFERENCES = (
 )
 
 
-def _run_backend(backend: str, mode: str, database: Path | None = None) -> dict[str, Any]:
+def _run_backend(backend: str, mode: str, database: Path | None = None) -> dict[str, JSONValue]:
     command = [
         sys.executable,
         "-m",
@@ -74,14 +76,15 @@ def _run_backend(backend: str, mode: str, database: Path | None = None) -> dict[
             f"{backend}/{mode} differential runner failed ({completed.returncode}).\n"
             f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )
-    return cast(dict[str, Any], json.loads(completed.stdout))
+    return load_json_object(completed.stdout)
 
 
 @pytest.fixture(scope="module", params=("memory", "file"))
 def backend_observations(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    mode = cast(str, request.param)
+) -> tuple[dict[str, JSONValue], dict[str, JSONValue]]:
+    mode: object = request.param
+    assert isinstance(mode, str)
     directory = tmp_path_factory.mktemp(f"differential-{mode}")
     return (
         _run_backend("sqlite", mode, directory / "sqlite.db" if mode == "file" else None),
@@ -91,7 +94,7 @@ def backend_observations(
 
 @pytest.mark.differential
 def test_differential_runner_reports_the_direct_scenario_set(
-    backend_observations: tuple[dict[str, Any], dict[str, Any]],
+    backend_observations: tuple[dict[str, JSONValue], dict[str, JSONValue]],
 ) -> None:
     sqlite, turso = backend_observations
     scenario_ids = set(PARITY_SCENARIOS) | {
@@ -103,7 +106,7 @@ def test_differential_runner_reports_the_direct_scenario_set(
 @pytest.mark.differential
 @pytest.mark.parametrize("scenario_id", PARITY_SCENARIOS)
 def test_differential_parity(
-    backend_observations: tuple[dict[str, Any], dict[str, Any]], scenario_id: str
+    backend_observations: tuple[dict[str, JSONValue], dict[str, JSONValue]], scenario_id: str
 ) -> None:
     sqlite, turso = backend_observations
     assert sqlite[scenario_id] == turso[scenario_id]
@@ -114,7 +117,7 @@ def test_differential_parity(
     "difference", INTENTIONAL_DIFFERENCES, ids=lambda difference: difference.scenario_id
 )
 def test_intentional_differential_differences(
-    backend_observations: tuple[dict[str, Any], dict[str, Any]],
+    backend_observations: tuple[dict[str, JSONValue], dict[str, JSONValue]],
     difference: IntentionalDifference,
 ) -> None:
     sqlite, turso = backend_observations
@@ -127,13 +130,14 @@ def test_intentional_differential_differences(
 def test_offline_shared_file_interoperability(tmp_path: Path) -> None:
     database = tmp_path / "shared-file.db"
 
-    def stage(backend: str, name: str) -> dict[str, Any]:
+    def stage(backend: str, name: str) -> dict[str, JSONValue]:
         environment = os.environ.copy()
         environment.pop("DJANGO_SETTINGS_MODULE", None)
         completed = subprocess.run(
             [
                 sys.executable,
-                str(FILE_INTEROP_RUNNER),
+                "-m",
+                "tests.differential.file_interop_runner",
                 "--backend",
                 backend,
                 "--stage",
@@ -148,7 +152,7 @@ def test_offline_shared_file_interoperability(tmp_path: Path) -> None:
             text=True,
             timeout=30,
         )
-        return cast(dict[str, Any], json.loads(completed.stdout))
+        return load_json_object(completed.stdout)
 
     seeded = stage("sqlite", "sqlite_seed")
     assert seeded["rows"] == [
@@ -159,8 +163,12 @@ def test_offline_shared_file_interoperability(tmp_path: Path) -> None:
 
     migrated = stage("turso", "turso_migrate_write")
     assert migrated["before"] == seeded["rows"]
-    assert migrated["after"][0][-1] == "migrated"
-    assert migrated["after"][2] == [
+    migrated_after = migrated["after"]
+    assert isinstance(migrated_after, list)
+    first_migrated = migrated_after[0]
+    assert isinstance(first_migrated, list)
+    assert first_migrated[-1] == "migrated"
+    assert migrated_after[2] == [
         3,
         "gamma",
         3,
@@ -170,7 +178,9 @@ def test_offline_shared_file_interoperability(tmp_path: Path) -> None:
 
     sqlite_again = stage("sqlite", "sqlite_verify_write")
     assert sqlite_again["before"] == migrated["after"]
-    assert sqlite_again["after"][1] == [
+    sqlite_after = sqlite_again["after"]
+    assert isinstance(sqlite_after, list)
+    assert sqlite_after[1] == [
         2,
         "beta",
         2,

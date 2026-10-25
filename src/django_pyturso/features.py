@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from django.db import ProgrammingError
 from django.db.backends.base.features import BaseDatabaseFeatures
+from django.db.models import Model
 
 
 class DatabaseFeatures(BaseDatabaseFeatures):
@@ -16,7 +15,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     allows_group_by_lob = True
     allows_group_by_selected_pks = False
     allows_group_by_select_index = True
-    empty_fetchmany_value: list[Any] = []
+    empty_fetchmany_value: list[object] = []
     update_can_self_select = True
     delete_can_self_reference_subquery = True
     interprets_empty_strings_as_nulls = False
@@ -188,7 +187,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_explaining_query_execution = True
     supports_transactions = True
 
-    def allows_group_by_selected_pks_on_model(self, model: Any) -> bool:
+    def allows_group_by_selected_pks_on_model(self, model: type[Model]) -> bool:
         """Apply Django's verified base rule without inheriting it implicitly."""
 
         return self.allows_group_by_selected_pks and model._meta.managed

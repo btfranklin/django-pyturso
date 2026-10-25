@@ -47,6 +47,8 @@ switches, and are covered by focused tests.
 
 - `pyturso` 0.7.0 stores raw `ALTER TABLE ADD COLUMN ... NULL` as `NOT NULL`.
   The schema editor therefore remakes the table to preserve Django nullability.
+- Fetch methods require tuple rows. Custom driver row factories that return
+  another format are rejected.
 - Named timezone conversion is rejected; database-side temporal operations are
   supported only without conversion or in UTC.
 - Duration values are stored as integer microseconds, but duration arithmetic

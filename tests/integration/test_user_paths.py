@@ -1,9 +1,9 @@
 """Django contrib, form, session, and admin integration paths."""
 
-from typing import Any
-
 import pytest
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.test import Client
 from django.urls import reverse
 
 from tests.project.forms import EntryForm
@@ -12,7 +12,7 @@ from tests.project.models import Entry
 
 @pytest.mark.integration
 @pytest.mark.django_db(transaction=True)
-def test_auth_sessions_forms_and_admin(client: Any, django_user_model: Any) -> None:
+def test_auth_sessions_forms_and_admin(client: Client, django_user_model: type[User]) -> None:
     user = django_user_model.objects.create_superuser(
         username="admin", email="admin@example.com", password="secret"
     )

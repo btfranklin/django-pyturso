@@ -1,7 +1,5 @@
 """Django bulk-write regressions. See docs/testing/django-regressions.md."""
 
-from typing import Any
-
 import pytest
 from django.db import IntegrityError
 from django.db.models import F, IntegerField, Value
@@ -91,7 +89,7 @@ def test_bulk_update_batches_are_atomic() -> None:
 @pytest.mark.parametrize(
     "value", [None, Value(None), Coalesce(None, None, output_field=IntegerField())]
 )
-def test_bulk_update_json_sql_null(value: Any) -> None:
+def test_bulk_update_json_sql_null(value: object) -> None:
     row = Record.objects.create(name="json", payload={})
     row.payload = value
     Record.objects.bulk_update([row], ["payload"])

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,9 +15,9 @@ pytestmark = pytest.mark.core
 
 def _capturing_editor(
     monkeypatch: pytest.MonkeyPatch,
-) -> tuple[DatabaseSchemaEditor, list[Any], MagicMock]:
+) -> tuple[DatabaseSchemaEditor, list[type[models.Model]], MagicMock]:
     editor = DatabaseSchemaEditor(connection, atomic=False)
-    created_models: list[Any] = []
+    created_models: list[type[models.Model]] = []
     execute = MagicMock()
     monkeypatch.setattr(editor, "create_model", created_models.append)
     monkeypatch.setattr(editor, "execute", execute)
@@ -98,9 +97,7 @@ def test_remake_filters_deleted_field_indexes_without_mutating_original_fields(
 
     assert len(created_models) == 1
     temporary_model = created_models[0]
-    assert [index.name for index in temporary_model._meta.indexes] == [
-        "retain_me_idx"
-    ]
+    assert [index.name for index in temporary_model._meta.indexes] == ["retain_me_idx"]
     assert temporary_model._meta.db_table == "new__remake_index_filter"
     assert retained_field.model is Record
     assert Record._meta.get_field("id").model is Record

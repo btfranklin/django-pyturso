@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Never
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -12,22 +12,26 @@ from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.models.functions import Lower
 
 from tests.schema_support import (
+    field_double,
     hashable_namespace,
     many_to_many_field,
+    model_double,
     schema_editor,
 )
 
 pytestmark = pytest.mark.core
 
 
-def _field(*, column: str, remote_field: object | None = None) -> Any:
-    return SimpleNamespace(
-        column=column,
-        remote_field=remote_field,
-        db_constraint=remote_field is not None,
-        db_index=False,
-        unique=False,
-        primary_key=False,
+def _field(*, column: str, remote_field: object | None = None) -> models.Field[Never, object]:
+    return field_double(
+        SimpleNamespace(
+            column=column,
+            remote_field=remote_field,
+            db_constraint=remote_field is not None,
+            db_index=False,
+            unique=False,
+            primary_key=False,
+        )
     )
 
 
@@ -47,9 +51,9 @@ def test_equivalent_column_rename_uses_exact_fast_path_contract(
     monkeypatch.setattr(editor, "_remake_table", remake)
 
     editor._alter_field(
-        model,
-        old_field,
-        new_field,
+        model_double(model),
+        field_double(old_field),
+        field_double(new_field),
         "varchar(20)",
         "varchar(40)",
         {},
@@ -74,13 +78,25 @@ def test_constrained_relation_rename_requires_table_remake(
     monkeypatch.setattr(editor, "_rename_field_sql", rename)
     monkeypatch.setattr(editor, "_remake_table", remake)
 
-    editor._alter_field(model, old_field, new_field, "integer", "integer", {}, {})
+    editor._alter_field(
+        model_double(model),
+        field_double(old_field),
+        field_double(new_field),
+        "integer",
+        "integer",
+        {},
+        {},
+    )
 
     remake.assert_called_once_with(model, alter_fields=[(old_field, new_field)])
     rename.assert_not_called()
 
 
-def _related_unique_fields(*, unique: bool) -> tuple[Any, Any, Any, Any]:
+def _related_unique_fields(
+    *, unique: bool
+) -> tuple[
+    type[models.Model], type[models.Model], models.Field[Never, object], models.Field[Never, object]
+]:
     model = hashable_namespace(name="owner")
     related = hashable_namespace(name="related")
     opts = SimpleNamespace(
@@ -103,7 +119,7 @@ def _related_unique_fields(*, unique: bool) -> tuple[Any, Any, Any, Any]:
         model=SimpleNamespace(_meta=opts),
         name="code",
     )
-    return model, related, old_field, new_field
+    return model_double(model), model_double(related), old_field, field_double(new_field)
 
 
 @pytest.mark.parametrize(
@@ -112,8 +128,8 @@ def _related_unique_fields(*, unique: bool) -> tuple[Any, Any, Any, Any]:
 )
 def test_unique_collation_change_remakes_related_table(
     monkeypatch: pytest.MonkeyPatch,
-    old_params: dict[str, str],
-    new_params: dict[str, str],
+    old_params: dict[str, str | None],
+    new_params: dict[str, str | None],
 ) -> None:
     editor = schema_editor()
     model, related, old_field, new_field = _related_unique_fields(unique=True)
@@ -121,9 +137,9 @@ def test_unique_collation_change_remakes_related_table(
     monkeypatch.setattr(editor, "_remake_table", remake)
 
     editor._alter_field(
-        model,
-        old_field,
-        new_field,
+        model_double(model),
+        field_double(old_field),
+        field_double(new_field),
         "varchar(20)",
         "varchar(20)",
         old_params,
@@ -145,9 +161,9 @@ def test_nonunique_type_change_does_not_remake_related_table(
     monkeypatch.setattr(editor, "_remake_table", remake)
 
     editor._alter_field(
-        model,
-        old_field,
-        new_field,
+        model_double(model),
+        field_double(old_field),
+        field_double(new_field),
         "varchar(20)",
         "varchar(40)",
         {},
@@ -181,7 +197,7 @@ def test_same_table_many_to_many_remake_receives_exact_field_pairs(
     )
 
     editor._alter_many_to_many(
-        SimpleNamespace(),
+        model_double(SimpleNamespace()),
         many_to_many_field(old_through, "local", "reverse"),
         many_to_many_field(new_through, "local", "reverse"),
         strict=False,
@@ -211,7 +227,7 @@ def test_different_table_many_to_many_uses_exact_copy_contract(
     monkeypatch.setattr(editor, "quote_name", lambda name: f'"{name}"')
 
     editor._alter_many_to_many(
-        SimpleNamespace(),
+        model_double(SimpleNamespace()),
         many_to_many_field(old_through, "old_local", "old_reverse"),
         many_to_many_field(new_through, "new_local", "new_reverse"),
         strict=False,
@@ -244,7 +260,7 @@ def test_different_table_many_to_many_uses_exact_copy_contract(
 )
 def test_specialized_unique_constraints_delegate_to_base(
     monkeypatch: pytest.MonkeyPatch,
-    constraint: Any,
+    constraint: models.UniqueConstraint,
 ) -> None:
     editor = schema_editor()
     model = SimpleNamespace()
@@ -255,8 +271,8 @@ def test_specialized_unique_constraints_delegate_to_base(
         patch.object(BaseDatabaseSchemaEditor, "add_constraint") as parent_add,
         patch.object(BaseDatabaseSchemaEditor, "remove_constraint") as parent_remove,
     ):
-        editor.add_constraint(model, constraint)
-        editor.remove_constraint(model, constraint)
+        editor.add_constraint(model_double(model), constraint)
+        editor.remove_constraint(model_double(model), constraint)
 
     parent_add.assert_called_once_with(model, constraint)
     parent_remove.assert_called_once_with(model, constraint)

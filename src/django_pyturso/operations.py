@@ -3,17 +3,19 @@
 import datetime
 import decimal
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from itertools import chain
-from typing import Any, cast
+from typing import TYPE_CHECKING, Never
 
 from django.conf import settings
 from django.core.exceptions import FieldError
+from django.core.management.color import Style
 from django.db import DatabaseError, NotSupportedError, models
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.backends.base.operations import BaseDatabaseOperations
 from django.db.models.aggregates import AnyValue, Avg, StdDev, Sum, Variance
 from django.db.models.constants import OnConflict
-from django.db.models.expressions import Col, Window
+from django.db.models.expressions import Col, Expression, Window
 from django.db.models.functions import (
     MD5,
     SHA1,
@@ -32,6 +34,11 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime, parse_time
 
 from .introspection import _identifier_key
+
+if TYPE_CHECKING:
+    from .base import DatabaseWrapper
+
+type Converter = Callable[[object, Expression, BaseDatabaseWrapper], object]
 
 # Selected conversion and conflict methods follow Django 6.0.7's SQLite dialect.
 
@@ -58,22 +65,26 @@ _UNSUPPORTED_EXPRESSION_TYPES = (
 class DatabaseOperations(BaseDatabaseOperations):
     """Implement the SQLite SQL dialect exposed by the Turso engine."""
 
+    connection: DatabaseWrapper
+
     cast_char_field_without_max_length = "text"
     cast_data_types = {"DateField": "TEXT", "DateTimeField": "TEXT"}
     explain_prefix = "EXPLAIN QUERY PLAN"
     jsonfield_datatype_values = frozenset(["null", "false", "true"])
 
-    def bulk_batch_size(self, fields: Iterable[models.Field[Any, Any]], objs: Sequence[Any]) -> int:
+    def bulk_batch_size(
+        self, fields: Iterable[models.Field[Never, object]], objs: Sequence[object]
+    ) -> int:
         flattened = list(
             chain.from_iterable(
                 field.fields if isinstance(field, models.CompositePrimaryKey) else [field]
                 for field in fields
             )
         )
-        max_query_params = cast(int, self.connection.features.max_query_params)
+        max_query_params = self.connection.features.max_query_params
         return max_query_params // len(flattened) if flattened else len(objs)
 
-    def check_expression_support(self, expression: Any) -> None:
+    def check_expression_support(self, expression: object) -> None:
         if isinstance(expression, _UNSUPPORTED_EXPRESSION_TYPES):
             raise NotSupportedError(
                 f"{expression.__class__.__name__} isn't supported by django-pyturso v1."
@@ -83,7 +94,7 @@ class DatabaseOperations(BaseDatabaseOperations):
             for source in expression.get_source_expressions():
                 try:
                     output_field = source.output_field
-                except (AttributeError, FieldError):
+                except AttributeError, FieldError:
                     continue
                 if isinstance(output_field, temporal_fields):
                     raise NotSupportedError(
@@ -132,18 +143,19 @@ class DatabaseOperations(BaseDatabaseOperations):
         return extracted
 
     def date_extract_sql(
-        self, lookup_type: str, sql: str, params: Sequence[Any]
-    ) -> tuple[str, tuple[Any, ...]]:
+        self, lookup_type: str, sql: str, params: Sequence[object]
+    ) -> tuple[str, tuple[object, ...]]:
         return self._extract_sql(lookup_type.lower(), sql), tuple(params)
 
+    # These Django stubs declare str; the runtime requires SQL and parameters.
     def time_extract_sql(  # type: ignore[override]
-        self, lookup_type: str, sql: str, params: Sequence[Any]
-    ) -> tuple[str, tuple[Any, ...]]:
+        self, lookup_type: str, sql: str, params: Sequence[object]
+    ) -> tuple[str, tuple[object, ...]]:
         return self._extract_sql(lookup_type.lower(), sql), tuple(params)
 
     def datetime_extract_sql(
-        self, lookup_type: str, sql: str, params: Sequence[Any], tzname: str | None
-    ) -> tuple[str, tuple[Any, ...]]:
+        self, lookup_type: str, sql: str, params: Sequence[object], tzname: str | None
+    ) -> tuple[str, tuple[object, ...]]:
         self._validate_timezone(tzname)
         return self._extract_sql(lookup_type.lower(), sql), tuple(params)
 
@@ -151,9 +163,9 @@ class DatabaseOperations(BaseDatabaseOperations):
         self,
         lookup_type: str,
         sql: str,
-        params: Sequence[Any],
+        params: Sequence[object],
         tzname: str | None = None,
-    ) -> tuple[str, tuple[Any, ...]]:
+    ) -> tuple[str, tuple[object, ...]]:
         self._validate_timezone(tzname)
         lookup_type = lookup_type.lower()
         result_params = tuple(params)
@@ -189,9 +201,10 @@ class DatabaseOperations(BaseDatabaseOperations):
         # Python time values use at most six fractional digits.
         return f"SUBSTR({formatted}, 12, 15)" if time_only else formatted
 
+    # The stub omits the parameter tuple from the runtime return type.
     def datetime_trunc_sql(  # type: ignore[override]
-        self, lookup_type: str, sql: str, params: Sequence[Any], tzname: str | None
-    ) -> tuple[str, tuple[Any, ...]]:
+        self, lookup_type: str, sql: str, params: Sequence[object], tzname: str | None
+    ) -> tuple[str, tuple[object, ...]]:
         self._validate_timezone(tzname)
         lookup_type = lookup_type.lower()
         if lookup_type == "week":
@@ -204,13 +217,14 @@ class DatabaseOperations(BaseDatabaseOperations):
         result = self._format_time_extension(f"time_trunc({parsed}, '{lookup_type}')")
         return f"CASE WHEN {sql} IS NULL THEN NULL ELSE {result} END", tuple(params) * 2
 
+    # The stub omits the parameter tuple from the runtime return type.
     def time_trunc_sql(  # type: ignore[override]
         self,
         lookup_type: str,
         sql: str,
-        params: Sequence[Any],
+        params: Sequence[object],
         tzname: str | None = None,
-    ) -> tuple[str, tuple[Any, ...]]:
+    ) -> tuple[str, tuple[object, ...]]:
         self._validate_timezone(tzname)
         lookup_type = lookup_type.lower()
         if lookup_type not in {"hour", "minute", "second"}:
@@ -223,14 +237,14 @@ class DatabaseOperations(BaseDatabaseOperations):
         return f"CASE WHEN {sql} IS NULL THEN NULL ELSE {result} END", tuple(params) * 2
 
     def datetime_cast_date_sql(
-        self, sql: str, params: Sequence[Any], tzname: str | None
-    ) -> tuple[str, tuple[Any, ...]]:
+        self, sql: str, params: Sequence[object], tzname: str | None
+    ) -> tuple[str, tuple[object, ...]]:
         self._validate_timezone(tzname)
         return f"date({sql})", tuple(params)
 
     def datetime_cast_time_sql(
-        self, sql: str, params: Sequence[Any], tzname: str | None
-    ) -> tuple[str, tuple[Any, ...]]:
+        self, sql: str, params: Sequence[object], tzname: str | None
+    ) -> tuple[str, tuple[object, ...]]:
         self._validate_timezone(tzname)
         parsed = self._time_extension_input(sql)
         formatted = self._format_time_extension(parsed, time_only=True)
@@ -250,7 +264,7 @@ class DatabaseOperations(BaseDatabaseOperations):
     def pk_default_value(self) -> str:
         return "NULL"
 
-    def _quote_params_for_last_executed_query(self, params: Sequence[Any]) -> tuple[Any, ...]:
+    def _quote_params_for_last_executed_query(self, params: Sequence[object]) -> tuple[object, ...]:
         batch_size = 999
         if len(params) > batch_size:
             return tuple(
@@ -263,18 +277,28 @@ class DatabaseOperations(BaseDatabaseOperations):
         if not params:
             return ()
         sql = "SELECT " + ", ".join(["QUOTE(?)"] * len(params))
-        cursor = self.connection.connection.cursor()
+        connection = self.connection.connection
+        if connection is None:
+            raise RuntimeError("Expected an open connection for query formatting.")
+        cursor = connection.cursor()
         try:
             row = cursor.execute(sql, params).fetchone()
             return tuple(row)
         finally:
             cursor.close()
 
-    def last_executed_query(self, cursor: Any, sql: str, params: Any) -> str:
+    def last_executed_query(
+        self,
+        cursor: object,
+        sql: str,
+        params: Sequence[object] | Mapping[str, object] | None,
+    ) -> str:
         if not params:
             return sql
-        if isinstance(params, (list, tuple)):
-            quoted: Any = self._quote_params_for_last_executed_query(params)
+        if not isinstance(params, Mapping):
+            quoted: tuple[object, ...] | dict[str, object] = (
+                self._quote_params_for_last_executed_query(params)
+            )
         else:
             values = self._quote_params_for_last_executed_query(tuple(params.values()))
             quoted = dict(zip(params, values, strict=True))
@@ -312,7 +336,7 @@ class DatabaseOperations(BaseDatabaseOperations):
 
     def sql_flush(
         self,
-        style: Any,
+        style: Style,
         tables: Sequence[str],
         *,
         reset_sequences: bool = False,
@@ -339,7 +363,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         return statements
 
     def sequence_reset_by_name_sql(
-        self, style: Any, sequences: Sequence[Mapping[str, Any]]
+        self, style: Style, sequences: Sequence[Mapping[str, str]]
     ) -> list[str]:
         if not sequences:
             return []
@@ -351,10 +375,10 @@ class DatabaseOperations(BaseDatabaseOperations):
             f"{style.SQL_KEYWORD('IN')} ({names});"
         ]
 
-    def adapt_datefield_value(self, value: Any) -> Any:
+    def adapt_datefield_value(self, value: datetime.date | None) -> str | None:
         return value.isoformat() if value is not None else None
 
-    def adapt_datetimefield_value(self, value: Any) -> Any:
+    def adapt_datetimefield_value(self, value: datetime.datetime | None) -> str | None:
         if value is None:
             return None
         if timezone.is_aware(value):
@@ -366,7 +390,7 @@ class DatabaseOperations(BaseDatabaseOperations):
                 )
         return value.isoformat(" ")
 
-    def adapt_timefield_value(self, value: Any) -> Any:
+    def adapt_timefield_value(self, value: datetime.datetime | datetime.time | None) -> str | None:
         if value is None:
             return None
         if timezone.is_aware(value):
@@ -374,14 +398,17 @@ class DatabaseOperations(BaseDatabaseOperations):
         return value.isoformat()
 
     def adapt_decimalfield_value(
-        self, value: Any, max_digits: int | None = None, decimal_places: int | None = None
-    ) -> Any:
+        self,
+        value: decimal.Decimal | None,
+        max_digits: int | None = None,
+        decimal_places: int | None = None,
+    ) -> str | None:
         if value is None:
             return None
         return str(value)
 
-    def get_db_converters(self, expression: Any) -> list[Any]:
-        converters = super().get_db_converters(expression)
+    def get_db_converters(self, expression: Expression) -> list[Converter]:
+        converters: list[Converter] = super().get_db_converters(expression)
         internal_type = expression.output_field.get_internal_type()
         if internal_type == "DateTimeField":
             converters.append(self.convert_datetimefield_value)
@@ -397,38 +424,54 @@ class DatabaseOperations(BaseDatabaseOperations):
             converters.append(self.convert_booleanfield_value)
         return converters
 
-    def convert_datetimefield_value(self, value: Any, expression: Any, connection: Any) -> Any:
-        if value is not None and not isinstance(value, datetime.datetime):
+    def convert_datetimefield_value(
+        self, value: object, expression: object, connection: object
+    ) -> datetime.datetime | None:
+        if isinstance(value, str):
             value = parse_datetime(value)
+        if value is not None and not isinstance(value, datetime.datetime):
+            raise TypeError("Expected a datetime, a string, or None from Turso.")
         if value is not None and settings.USE_TZ and not timezone.is_aware(value):
             value = timezone.make_aware(value, self.connection.timezone)
         return value
 
-    def convert_datefield_value(self, value: Any, expression: Any, connection: Any) -> Any:
-        return (
-            parse_date(value)
-            if value is not None and not isinstance(value, datetime.date)
-            else value
-        )
+    def convert_datefield_value(
+        self, value: object, expression: object, connection: object
+    ) -> datetime.date | None:
+        if isinstance(value, str):
+            return parse_date(value)
+        if value is None or isinstance(value, datetime.date):
+            return value
+        raise TypeError("Expected a date, a string, or None from Turso.")
 
-    def convert_timefield_value(self, value: Any, expression: Any, connection: Any) -> Any:
-        return (
-            parse_time(value)
-            if value is not None and not isinstance(value, datetime.time)
-            else value
-        )
+    def convert_timefield_value(
+        self, value: object, expression: object, connection: object
+    ) -> datetime.time | None:
+        if isinstance(value, str):
+            return parse_time(value)
+        if value is None or isinstance(value, datetime.time):
+            return value
+        raise TypeError("Expected a time, a string, or None from Turso.")
 
-    def get_decimalfield_converter(self, expression: Any) -> Any:
+    def get_decimalfield_converter(self, expression: object) -> Converter:
         create_decimal = decimal.Context(prec=15).create_decimal_from_float
         if isinstance(expression, Col):
             output_field = expression.output_field
-            decimal_places = getattr(output_field, "decimal_places")
-            context = getattr(output_field, "context")
+            if not isinstance(output_field, models.DecimalField):
+                raise TypeError("Expected a DecimalField for decimal conversion.")
+            decimal_places = output_field.decimal_places
+            if decimal_places is None:
+                raise TypeError("Expected decimal_places for decimal conversion.")
+            context = output_field.context
             quantize_value = decimal.Decimal(1).scaleb(-decimal_places)
 
-            def converter(value: Any, _expression: Any, connection: Any) -> Any:
+            def converter(
+                value: object, _expression: object, connection: object
+            ) -> decimal.Decimal | None:
                 if value is None:
                     return None
+                if not isinstance(value, str | int | float | decimal.Decimal):
+                    raise TypeError("Expected a decimal value from Turso.")
                 return (
                     create_decimal(value).quantize(quantize_value, context=context)
                     if isinstance(value, float)
@@ -437,7 +480,11 @@ class DatabaseOperations(BaseDatabaseOperations):
 
         else:
 
-            def converter(value: Any, _expression: Any, connection: Any) -> Any:
+            def converter(
+                value: object, _expression: object, connection: object
+            ) -> decimal.Decimal | None:
+                if value is not None and not isinstance(value, str | int | float | decimal.Decimal):
+                    raise TypeError("Expected a decimal value from Turso.")
                 return (
                     create_decimal(value)
                     if isinstance(value, float)
@@ -448,10 +495,18 @@ class DatabaseOperations(BaseDatabaseOperations):
 
         return converter
 
-    def convert_uuidfield_value(self, value: Any, expression: Any, connection: Any) -> Any:
-        return uuid.UUID(value) if value is not None and not isinstance(value, uuid.UUID) else value
+    def convert_uuidfield_value(
+        self, value: object, expression: object, connection: object
+    ) -> uuid.UUID | None:
+        if isinstance(value, str):
+            return uuid.UUID(value)
+        if value is None or isinstance(value, uuid.UUID):
+            return value
+        raise TypeError("Expected a UUID, a string, or None from Turso.")
 
-    def convert_booleanfield_value(self, value: Any, expression: Any, connection: Any) -> Any:
+    def convert_booleanfield_value(
+        self, value: object, expression: object, connection: object
+    ) -> object:
         return bool(value) if value in (0, 1) else value
 
     def combine_expression(self, connector: str, sub_expressions: list[str]) -> str:
@@ -464,9 +519,7 @@ class DatabaseOperations(BaseDatabaseOperations):
     def combine_duration_expression(self, connector: str, sub_expressions: list[str]) -> str:
         if connector not in {"+", "-", "*", "/"}:
             raise DatabaseError(f"Invalid connector for timedelta: {connector}.")
-        raise NotSupportedError(
-            "Duration arithmetic isn't supported by django-pyturso v1."
-        )
+        raise NotSupportedError("Duration arithmetic isn't supported by django-pyturso v1.")
 
     def integer_field_range(self, internal_type: str) -> tuple[int, int]:
         if internal_type in {
@@ -480,12 +533,10 @@ class DatabaseOperations(BaseDatabaseOperations):
     def subtract_temporals(
         self,
         internal_type: str,
-        lhs: tuple[str, Sequence[Any]],
-        rhs: tuple[str, Sequence[Any]],
-    ) -> tuple[str, tuple[Any, ...]]:
-        raise NotSupportedError(
-            "Temporal subtraction isn't supported by django-pyturso v1."
-        )
+        lhs: tuple[str, Sequence[object]],
+        rhs: tuple[str, Sequence[object]],
+    ) -> tuple[str, tuple[object, ...]]:
+        raise NotSupportedError("Temporal subtraction isn't supported by django-pyturso v1.")
 
     def insert_statement(self, on_conflict: OnConflict | None = None) -> str:
         return (
@@ -496,10 +547,10 @@ class DatabaseOperations(BaseDatabaseOperations):
 
     def on_conflict_suffix_sql(
         self,
-        fields: Sequence[Any],
+        fields: Sequence[models.Field[Never, object]],
         on_conflict: OnConflict | None,
-        update_fields: Sequence[Any],
-        unique_fields: Sequence[Any],
+        update_fields: Sequence[str],
+        unique_fields: Sequence[str],
     ) -> str:
         if on_conflict == OnConflict.UPDATE:
             return "ON CONFLICT(%s) DO UPDATE SET %s" % (

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from django.db import IntegrityError, connection
+from pytest_django.plugin import DjangoDbBlocker
 
 
 def _foreign_key_state() -> int:
@@ -18,7 +17,7 @@ def _foreign_key_state() -> int:
 
 @pytest.mark.core
 def test_constraint_toggles_verify_state_and_preserve_existing_disabled_state(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock():
         assert _foreign_key_state() == 1
@@ -41,7 +40,7 @@ def test_constraint_toggles_verify_state_and_preserve_existing_disabled_state(
 
 @pytest.mark.core
 def test_manual_checker_reports_rowid_identity_and_respects_table_scope(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute("CREATE TABLE fk_rowid_parent (id integer PRIMARY KEY)")
@@ -77,7 +76,7 @@ def test_manual_checker_reports_rowid_identity_and_respects_table_scope(
 
 @pytest.mark.core
 def test_composite_checker_uses_match_simple_null_semantics(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
@@ -131,7 +130,7 @@ def test_composite_checker_uses_match_simple_null_semantics(
 
 
 @pytest.mark.core
-def test_omitted_targets_and_quoted_unicode_identifiers(django_db_blocker: Any) -> None:
+def test_omitted_targets_and_quoted_unicode_identifiers(django_db_blocker: DjangoDbBlocker) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(
             """
@@ -199,18 +198,17 @@ def test_omitted_targets_and_quoted_unicode_identifiers(django_db_blocker: Any) 
     ],
 )
 def test_manual_checker_matches_native_parent_affinity_and_collation(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
     parent_type: str,
-    parent_value: Any,
+    parent_value: int | str,
     child_type: str,
-    child_value: Any,
+    child_value: int | str,
     valid: bool,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute(f"CREATE TABLE fk_affinity_parent (key {parent_type} PRIMARY KEY)")
         cursor.execute(
-            f"CREATE TABLE fk_affinity_child (key {child_type} "
-            "REFERENCES fk_affinity_parent(key))"
+            f"CREATE TABLE fk_affinity_child (key {child_type} REFERENCES fk_affinity_parent(key))"
         )
         try:
             cursor.execute("INSERT INTO fk_affinity_parent VALUES (%s)", [parent_value])
@@ -236,7 +234,7 @@ def test_manual_checker_matches_native_parent_affinity_and_collation(
 
 @pytest.mark.core
 def test_schema_editor_rolls_back_reference_with_wrong_parent_affinity(
-    django_db_blocker: Any,
+    django_db_blocker: DjangoDbBlocker,
 ) -> None:
     with django_db_blocker.unblock(), connection.cursor() as cursor:
         cursor.execute("CREATE TABLE fk_migration_parent (key TEXT PRIMARY KEY)")

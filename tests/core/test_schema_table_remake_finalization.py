@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -33,7 +32,8 @@ def test_remake_uses_exact_temporary_model_and_finalization_calls(
 
     editor._remake_table(Record)
 
-    new_model: Any = create.call_args.args[0]
+    new_model: object = create.call_args.args[0]
+    assert isinstance(new_model, type) and issubclass(new_model, models.Model)
     assert new_model.__name__ == "NewRecord"
     assert new_model._meta.db_table == "new__remake_finalize_record"
     delete.assert_called_once_with(Record, handle_autom2m=False)
@@ -61,6 +61,7 @@ def test_deleting_automatic_primary_key_clears_recreated_model_pk(
 
     editor._remake_table(Record, delete_field=Record._meta.pk)
 
-    new_model: Any = create.call_args.args[0]
+    new_model: object = create.call_args.args[0]
+    assert isinstance(new_model, type) and issubclass(new_model, models.Model)
     assert new_model.pk is None
     assert new_model._meta.local_fields == [new_model._meta.get_field("value")]

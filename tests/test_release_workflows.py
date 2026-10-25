@@ -140,3 +140,17 @@ def test_runtime_advisory_audit_is_required_before_verification(
     assert all(
         index < audit for index, command in enumerate(commands) if command.startswith("pdm update ")
     )
+
+
+@pytest.mark.parametrize("filename", ["python-package.yml", "verify-release.yml"])
+def test_pdm_uses_supported_python_in_every_install_job(filename: str) -> None:
+    pdm_setups = [
+        step
+        for job in _jobs(workflow(filename)).values()
+        for step in _steps(job)
+        if _string(step.get("uses", "")).startswith("pdm-project/setup-pdm@")
+    ]
+    assert pdm_setups
+    for setup in pdm_setups:
+        # PDM must not select a newer runner Python from the open-ended package constraint.
+        assert _mapping(setup["with"]).get("python-version") == "3.14"

@@ -34,6 +34,7 @@ jobs:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
               with:
+                  python-version: "3.14"
                   cache: true
                   cache-dependency-path: pdm.lock
             - run: pdm lock --check
@@ -67,6 +68,7 @@ jobs:
                   python-version: "3.14"
             - uses: pdm-project/setup-pdm@v4
               with:
+                  python-version: "3.14"
                   cache: true
                   cache-dependency-path: pdm.lock
             - run: pdm sync -G dev --clean

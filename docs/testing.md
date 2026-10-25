@@ -40,6 +40,10 @@ CI runs this command separately from the offline aggregate checks. It fails for
 known vulnerabilities or an incomplete scan. See [Security](security.md#sql-and-dependencies)
 for the audit scope and release checks.
 
+Test and verification jobs select Python 3.14 in both Python setup actions.
+The explicit PDM input prevents the runner from selecting a newer interpreter
+from the package's open-ended Python requirement.
+
 Test and verification jobs use PDM's dependency cache. The cache key includes
 the operating system, CPU type, Python version, and hash of `pdm.lock`.
 The cache contains the environment and package files. Each job runs

@@ -225,7 +225,7 @@ def test_real_audit_rejects_active_advisories_even_without_a_fix(
     with pytest.raises(audit_dependencies.AuditError, match="Known vulnerabilities"):
         audit_dependencies.main()
     output = capsys.readouterr().out
-    assert "sqlparse==0.6.0: PYSEC-2026-1" in output
+    assert f"sqlparse=={version("sqlparse")}: PYSEC-2026-1" in output
     assert "No known vulnerabilities found" not in output
 
 

@@ -1,42 +1,42 @@
 # Releasing
 
-1. Run `pdm run check-full` and `pdm run test-mvcc` with both an in-memory and
-   a disposable file database. Then run `pdm run build` and `pdm run package-test`.
-2. Create and push a semantic version tag matching `v*.*.*`.
-3. The tag verifies the backend on macOS, Linux, and Windows, then builds and
-   clean-installs the exact tagged artifacts. Each platform runs the MVCC
-   application checks with both database types.
-4. The draft-release workflow requires the same reusable verification to succeed
-   before creating a GitHub draft release. Review its notes and publish it.
-5. Publishing the GitHub Release starts the same verification workflow again
-   for the release commit. PyPI Trusted Publishing waits for that run to pass.
+1. Create and push a semantic version tag matching `v*.*.*`.
+2. Wait for the Create Draft Release workflow to finish. Its reusable verification
+   calls ordinary Python package CI with the release platform matrix enabled,
+   plus CodeQL for Python and Actions. No separate verification run starts on tags.
+3. Validation runs the full documentation, lint, type, and test suite, runtime
+   advisory audits, file-backed Django regressions, and both MVCC modes on macOS,
+   Linux, and Windows. It builds and clean-installs both package archives and
+   checks their versions against the tag. The ordinary current-dependency job
+   also runs, including its audit and full checks. Dependency review remains
+   specific to pull requests.
+4. Only after all required checks pass does release-notes-scribe create the actual
+   GitHub draft release. Review the generated notes and click Publish.
+5. The `release: published` event starts Upload Python Package. It checks out
+   `github.event.release.tag_name` with full history, rebuilds the wheel and source
+   distribution, and uploads them using PyPI Trusted Publishing. It trusts draft
+   preparation and does not rerun validation or package-install smoke tests.
 
-Before upload, the reusable verification workflow checks the release commit on
-macOS, Linux, and Windows. Each platform runs the full check and both MVCC modes.
-The package job waits for all platforms, builds both archives, checks their
-version against the release tag, and clean-installs each archive for the Django
-smoke tests. It stores the verified archives as a workflow artifact.
+Ordinary GitHub draft creation does not trigger these workflows. The supported
+validated path is push tag, wait for successful checks and the generated draft,
+review, then Publish. Manually created drafts have no validation guarantee.
+Do not move the tag between validation and publication. Failed preparation must
+be fixed and successfully rerun before publication.
 
-The publication job runs only after verification succeeds. It downloads those
-archives from the same run and uploads them without a rebuild. A failed,
-cancelled, or incomplete verification cannot start publication. Only the
-publication job has `id-token: write`; the verification jobs retain read-only
-repository access. Publishing the GitHub Release remains a human action.
+The publisher rebuilds from the same release tag; it does not retrieve archives
+from draft preparation. Package builds fetch the full Git history and tags
+because the version comes from Git. Only the publication job has
+`id-token: write`, and it retains the `release` environment and
+`python-publish.yml` Trusted Publisher identity. Validation has read-only
+repository contents access; CodeQL also has security-event upload permission.
+Publishing the GitHub Release remains a human action.
 
-To run the platform and package checks before you create a tag, push the branch
-and start the verification workflow:
+To run the same validation before creating a tag, push the branch and start:
 
 ```bash
 gh workflow run verify-release.yml --ref main
 ```
 
-This run checks the selected branch on all three platforms and verifies both
-package archives. A tag run also checks that each artifact version matches the
-tag.
-
-Package build jobs fetch the full Git history and tags. The package version
-comes from the latest version tag and the commits after it.
-
-The draft-release workflow creates release notes. The verification workflow only
-tests the branch or tag and artifacts; it does not publish a release or upload
-to PyPI.
+This checks all three platforms, current dependencies, CodeQL, and both package
+archives. It does not create a release or upload to PyPI. A tag run additionally
+checks archive versions against the tag.

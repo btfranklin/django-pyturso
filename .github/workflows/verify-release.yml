@@ -3,88 +3,19 @@ name: Verify Release
 on:
     workflow_call:
     workflow_dispatch:
-    push:
-        tags:
-            - "v*.*.*"
 
 permissions:
     contents: read
 
 jobs:
-    platform-verification:
-        name: Platform (${{ matrix.label }})
-        runs-on: ${{ matrix.os }}
-        timeout-minutes: 30
-        strategy:
-            fail-fast: false
-            matrix:
-                include:
-                    - label: macos
-                      os: macos-15
-                    - label: linux
-                      os: ubuntu-24.04
-                    - label: windows
-                      os: windows-2025
-        steps:
-            - uses: actions/checkout@v7
-              with:
-                  ref: ${{ github.sha }}
-            - uses: actions/setup-python@v7
-              with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-              with:
-                  python-version: "3.14"
-                  cache: true
-                  cache-dependency-path: pdm.lock
-            - run: pdm lock --check
-            - run: pdm sync -G dev --clean
-            - run: pdm run audit
-            - name: Install documentation checker
-              run: python scripts/install_perfect_doc.py "${{ runner.temp }}/perfect-doc"
-            - run: pdm run check-full
-            - name: Test Django regressions in a file
-              env:
-                  DJANGO_PYTURSO_TEST_DB: ${{ runner.temp }}
-              run: pdm run test-django-regressions --ds=tests.settings.turso_file
-            - name: Test MVCC in memory
-              run: pdm run test-mvcc
-            - name: Test MVCC in a file
-              env:
-                  DJANGO_PYTURSO_MVCC_DB: ${{ runner.temp }}/django-pyturso-mvcc.db
-              run: pdm run test-mvcc
+    validation:
+        uses: ./.github/workflows/python-package.yml
+        with:
+            release: true
 
-    package-verification:
-        needs: platform-verification
-        runs-on: ubuntu-24.04
-        timeout-minutes: 30
-        steps:
-            - uses: actions/checkout@v7
-              with:
-                  fetch-depth: 0
-                  ref: ${{ github.sha }}
-            - uses: actions/setup-python@v7
-              with:
-                  python-version: "3.14"
-            - uses: pdm-project/setup-pdm@v4
-              with:
-                  python-version: "3.14"
-                  cache: true
-                  cache-dependency-path: pdm.lock
-            - run: pdm sync -G dev --clean
-            - run: pdm run build
-            - name: Verify tag artifacts
-              if: github.ref_type == 'tag'
-              run: pdm run verify-release --expected-version "${GITHUB_REF_NAME#v}"
-            - name: Verify branch artifacts
-              if: github.ref_type != 'tag'
-              run: pdm run package-test
-            - name: Store verified package archives
-              uses: actions/upload-artifact@v7
-              with:
-                  name: verified-python-package
-                  path: |
-                      dist/*.whl
-                      dist/*.tar.gz
-                  if-no-files-found: error
-                  retention-days: 7
+    security:
+        uses: ./.github/workflows/codeql.yml
+        permissions:
+            actions: read
+            contents: read
+            security-events: write

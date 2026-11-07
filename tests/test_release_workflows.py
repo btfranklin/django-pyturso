@@ -1,5 +1,6 @@
-"""Keep publication behind verification of the same commit and archives."""
+"""Validate before creating a draft; rebuild and publish from its tag afterward."""
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -40,23 +41,34 @@ def workflow(name: str) -> dict[str, JSONValue]:
     return _mapping(_json_value(document))
 
 
-def test_publication_requires_successful_local_release_verification() -> None:
+def test_publication_only_builds_the_release_tag_and_uploads() -> None:
     publish = workflow("python-publish.yml")
     assert publish["on"] == {"release": {"types": ["published"]}}
-    gate = _jobs(publish)["verify-release"]
-    assert gate["uses"] == "./.github/workflows/verify-release.yml"
-    assert "if" not in gate
-    assert "continue-on-error" not in gate
-    upload = _jobs(publish)["publish"]
-    assert upload["needs"] == "verify-release"
-    assert "if" not in upload
-    assert "continue-on-error" not in upload
-    assert upload["environment"] == "release"
     assert publish["permissions"] == {"contents": "read"}
+    assert set(_jobs(publish)) == {"publish"}
+    upload = _jobs(publish)["publish"]
+    assert "needs" not in upload
+    assert upload["environment"] == "release"
     assert upload["permissions"] == {"contents": "read", "id-token": "write"}
+    steps = _steps(upload)
+    checkout, python, pdm, build, publish_step = steps
+    assert _string(checkout["uses"]).startswith("actions/checkout@")
+    assert checkout["with"] == {
+        "ref": "${{ github.event.release.tag_name }}",
+        "fetch-depth": "0",
+    }
+    assert _string(python["uses"]).startswith("actions/setup-python@")
+    assert _string(pdm["uses"]).startswith("pdm-project/setup-pdm@")
+    assert build["run"] == "pdm build"
+    assert _string(publish_step["uses"]).startswith("pypa/gh-action-pypi-publish@")
+    assert all("if" not in step and "continue-on-error" not in step for step in steps)
+    # A build must not invoke a hidden validation suite through a PDM build hook.
+    with (WORKFLOWS.parents[1] / "pyproject.toml").open("rb") as manifest:
+        scripts = tomllib.load(manifest)["tool"]["pdm"]["scripts"]
+    assert not {"pre_build", "post_build"}.intersection(scripts)
 
 
-def test_draft_requires_successful_local_release_verification() -> None:
+def test_draft_requires_all_reusable_validation_before_creating_a_release() -> None:
     draft = workflow("create-draft-release.yml")
     assert draft["on"] == {"push": {"tags": ["v*.*.*"]}}
     assert draft["permissions"] == {"contents": "read"}
@@ -71,81 +83,68 @@ def test_draft_requires_successful_local_release_verification() -> None:
     steps = _steps(create)
     assert _mapping(steps[0]["with"])["ref"] == "${{ github.sha }}"
     assert _string(steps[-1]["uses"]).startswith("btfranklin/release-notes-scribe@")
+    assert _mapping(steps[-1]["with"])["draft"] == "true"
+    assert _mapping(steps[-1]["with"])["create_release"] == "true"
     assert all("if" not in step and "continue-on-error" not in step for step in steps)
 
-
-def test_release_verification_checks_all_platforms_and_mvcc_modes_at_the_event_commit() -> None:
     verify = workflow("verify-release.yml")
-    assert "workflow_call" in _mapping(verify["on"])
-    assert verify["permissions"] == {"contents": "read"}
-    platform = _jobs(verify)["platform-verification"]
-    strategy = _mapping(platform["strategy"])
-    matrix = _mapping(strategy["matrix"])
-    assert {entry["label"] for entry in _mappings(matrix["include"])} == {
-        "macos",
-        "linux",
-        "windows",
-    }
-    for job in _jobs(verify).values():
+    assert set(_mapping(verify["on"])) == {"workflow_call", "workflow_dispatch"}
+    validation = _jobs(verify)["validation"]
+    assert validation["uses"] == "./.github/workflows/python-package.yml"
+    assert validation["with"] == {"release": "true"}
+    security = _jobs(verify)["security"]
+    assert security["uses"] == "./.github/workflows/codeql.yml"
+    assert _mapping(security["permissions"])["security-events"] == "write"
+    for job in (validation, security):
         assert "if" not in job
         assert "continue-on-error" not in job
-        assert "permissions" not in job
-        checkouts = [
-            step
-            for step in _steps(job)
-            if _string(step.get("uses", "")).startswith("actions/checkout@")
-        ]
-        assert len(checkouts) == 1
-        assert _mapping(checkouts[0]["with"])["ref"] == "${{ github.sha }}"
-        assert all("continue-on-error" not in step for step in _steps(job))
-    commands = [step.get("run") for step in _steps(platform)]
-    assert "pdm run check-full" in commands
-    mvcc = [step for step in _steps(platform) if step.get("run") == "pdm run test-mvcc"]
-    assert len(mvcc) == 2
-    assert sum("DJANGO_PYTURSO_MVCC_DB" in _mapping(step.get("env", {})) for step in mvcc) == 1
+    assert "workflow_call" in _mapping(workflow("codeql.yml")["on"])
 
 
-def test_only_verified_archives_are_transferred_to_publication() -> None:
-    verify = workflow("verify-release.yml")
-    package = _jobs(verify)["package-verification"]
-    assert package["needs"] == "platform-verification"
-    steps = _steps(package)
-    build = next(index for index, step in enumerate(steps) if step.get("run") == "pdm run build")
-    check = next(
-        index for index, step in enumerate(steps) if step.get("name") == "Verify tag artifacts"
-    )
-    assert steps[check]["if"] == "github.ref_type == 'tag'"
-    assert steps[check]["run"] == 'pdm run verify-release --expected-version "${GITHUB_REF_NAME#v}"'
-    store = steps[-1]
-    assert _string(store["uses"]).startswith("actions/upload-artifact@")
-    assert "if" not in store
-    assert build < check < len(steps) - 1
-    assert _mapping(store["with"])["if-no-files-found"] == "error"
-    assert _string(_mapping(store["with"])["path"]).splitlines() == ["dist/*.whl", "dist/*.tar.gz"]
-    publish = _steps(_jobs(workflow("python-publish.yml"))["publish"])
-    assert len(publish) == 2
-    download, upload = publish
-    assert _string(download["uses"]).startswith("actions/download-artifact@")
-    assert download["with"] == {"name": _mapping(store["with"])["name"], "path": "dist"}
-    assert _string(upload["uses"]).startswith("pypa/gh-action-pypi-publish@")
-    assert "if" not in download and "if" not in upload
-    assert all("continue-on-error" not in step for step in publish)
+def test_reusable_ci_retains_platform_current_dependency_and_package_checks() -> None:
+    ci = workflow("python-package.yml")
+    assert "workflow_call" in _mapping(ci["on"])
+    jobs = _jobs(ci)
+    platform = jobs["quality"]
+    strategy = _mapping(platform["strategy"])
+    assert strategy["fail-fast"] == "false"
+    matrix = _string(_mapping(strategy["matrix"])["os"])
+    assert "inputs.release" in matrix
+    for runner in ("macos-15", "ubuntu-24.04", "windows-2025"):
+        assert runner in matrix
+    for job in (platform, jobs["current-dependencies"]):
+        assert "if" not in job
+        assert "continue-on-error" not in job
+        steps = _steps(job)
+        assert all("continue-on-error" not in step for step in steps)
+        commands = [step.get("run") for step in steps]
+        assert "pdm run check-full" in commands
+        assert "pdm run test-django-regressions --ds=tests.settings.turso_file" in commands
+        mvcc = [step for step in steps if step.get("run") == "pdm run test-mvcc"]
+        assert len(mvcc) == 2
+        assert sum("DJANGO_PYTURSO_MVCC_DB" in _mapping(step.get("env", {})) for step in mvcc) == 1
+    current = [step.get("run") for step in _steps(jobs["current-dependencies"])]
+    assert "pdm update --stable --update-eager Django pyturso sqlparse" in current
+    assert "pdm update -G dev --stable --update-eager django-stubs" in current
+    assert jobs["dependency-review"]["if"] == "github.event_name == 'pull_request'"
+    steps = _steps(platform)
+    checkout = steps[0]
+    assert _mapping(checkout["with"])["fetch-depth"] == "0"
+    commands = [step.get("run") for step in steps]
+    assert "pdm run build" in commands
+    tag_check = next(step for step in steps if step.get("name") == "Verify tag artifacts")
+    assert tag_check["if"] == "github.ref_type == 'tag'"
+    assert tag_check["shell"] == "bash"
+    assert tag_check["run"] == 'pdm run verify-release --expected-version "${GITHUB_REF_NAME#v}"'
+    assert commands.index("pdm run build") < steps.index(tag_check)
+    branch_check = next(step for step in steps if step.get("name") == "Verify branch artifacts")
+    assert branch_check["if"] == "github.ref_type != 'tag'"
+    assert branch_check["run"] == "pdm run package-test"
 
 
-@pytest.mark.parametrize(
-    ("filename", "job_name"),
-    [
-        ("python-package.yml", "quality"),
-        ("python-package.yml", "current-dependencies"),
-        ("verify-release.yml", "platform-verification"),
-    ],
-)
-def test_runtime_advisory_audit_is_required_before_verification(
-    filename: str, job_name: str
-) -> None:
-    job = _jobs(workflow(filename))[job_name]
-    assert "if" not in job
-    assert "continue-on-error" not in job
+@pytest.mark.parametrize("job_name", ["quality", "current-dependencies"])
+def test_runtime_advisory_audit_is_required_before_verification(job_name: str) -> None:
+    job = _jobs(workflow("python-package.yml"))[job_name]
     steps = _steps(job)
     audits = [index for index, step in enumerate(steps) if step.get("run") == "pdm run audit"]
     assert len(audits) == 1
@@ -160,7 +159,7 @@ def test_runtime_advisory_audit_is_required_before_verification(
     )
 
 
-@pytest.mark.parametrize("filename", ["python-package.yml", "verify-release.yml"])
+@pytest.mark.parametrize("filename", ["python-package.yml", "python-publish.yml"])
 def test_pdm_uses_supported_python_in_every_install_job(filename: str) -> None:
     pdm_setups = [
         step
@@ -170,5 +169,4 @@ def test_pdm_uses_supported_python_in_every_install_job(filename: str) -> None:
     ]
     assert pdm_setups
     for setup in pdm_setups:
-        # PDM must not select a newer runner Python from the open-ended package constraint.
         assert _mapping(setup["with"]).get("python-version") == "3.14"

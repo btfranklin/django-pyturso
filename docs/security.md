@@ -43,5 +43,7 @@ The command requires network access; the offline aggregate checks do not run it.
 
 CI runs this check on pull requests and pushes to `main`, for both locked and
 current runtime dependencies. Release verification also runs it on each
-supported platform before package publication can proceed.
+supported platform before the generated draft can be created. CodeQL also gates
+the draft. Publication trusts that preparation and only rebuilds and uploads
+the tagged package.
 Releases use PyPI Trusted Publishing; no PyPI token is stored in this repository.

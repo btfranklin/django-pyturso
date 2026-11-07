@@ -1,6 +1,12 @@
 name: Python package
 
 on:
+    workflow_call:
+        inputs:
+            release:
+                description: Run validation on every supported platform
+                type: boolean
+                default: false
     pull_request:
     push:
         branches: [main]
@@ -10,9 +16,13 @@ permissions:
 
 jobs:
     quality:
-        name: Quality
-        runs-on: ubuntu-24.04
-        timeout-minutes: 20
+        name: Quality (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: ${{ fromJSON(inputs.release && '["ubuntu-24.04", "macos-15", "windows-2025"]' || '["ubuntu-24.04"]') }}
+        timeout-minutes: 30
         steps:
             - uses: actions/checkout@v7
               with:
@@ -42,7 +52,13 @@ jobs:
                   DJANGO_PYTURSO_MVCC_DB: ${{ runner.temp }}/django-pyturso-mvcc.db
               run: pdm run test-mvcc
             - run: pdm run build
-            - run: pdm run package-test
+            - name: Verify tag artifacts
+              if: github.ref_type == 'tag'
+              shell: bash
+              run: pdm run verify-release --expected-version "${GITHUB_REF_NAME#v}"
+            - name: Verify branch artifacts
+              if: github.ref_type != 'tag'
+              run: pdm run package-test
 
     current-dependencies:
         name: Current runtime dependencies

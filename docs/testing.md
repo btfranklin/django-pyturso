@@ -31,9 +31,11 @@ pdm run check-full
 ```
 
 This command checks documentation, lint, types, and the full pytest suite, including
-integration and stress tests. CI and tag verification use this full gate.
+integration and stress tests. CI and pre-draft tag verification use this full gate.
 CI also runs the full gate with current stable Django, `pyturso`, `sqlparse`, and
-`django-stubs` releases. This job updates only its temporary checkout's lockfile.
+`django-stubs` releases. Draft preparation reuses this job along with the
+platform checks; publication does not rerun them. The current-dependency job
+updates only its temporary checkout's lockfile.
 
 Run `pdm run audit` for the network advisory check of locked runtime dependencies.
 CI runs this command separately from the offline aggregate checks. It fails for

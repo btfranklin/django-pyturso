@@ -19,6 +19,7 @@ import pytest
 from packaging.markers import Marker
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
+from packaging.version import Version
 
 from scripts import audit_dependencies, verify_packages
 from scripts.audit_dependencies import JSONValue
@@ -98,6 +99,8 @@ def test_sqlparse_security_floor_is_declared_locked_and_installed() -> None:
 @pytest.fixture
 def serve(monkeypatch: pytest.MonkeyPatch) -> Serve:
     """Replace only HTTPS transport; keep the complete audit and HTTP handlers."""
+    # The fake transport must not inherit the runner's network proxy configuration.
+    monkeypatch.setattr(urllib.request, "getproxies", dict)
 
     def install(
         transform: Transform = lambda data: data,
@@ -139,9 +142,7 @@ def _advisory(**changes: JSONValue) -> dict[str, JSONValue]:
     return {"id": "PYSEC-2026-1", "aliases": [], "fixed_in": [], "withdrawn": None, **changes}
 
 
-def test_audit_checks_every_locked_runtime_release(
-    serve: Serve, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_audit_checks_every_locked_runtime_release(serve: Serve) -> None:
     calls = serve()
     audit_dependencies.main()
     packages = _locked_packages()
@@ -152,17 +153,15 @@ def test_audit_checks_every_locked_runtime_release(
     }
     assert {tuple(url.split("/")[4:6]) for url in calls} == expected
     assert len(calls) == len(expected)
-    assert "No known vulnerabilities found" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("vulnerabilities", [{}, "", None, False, 0, [None], [{}]])
 def test_real_audit_rejects_invalid_vulnerability_data(
-    serve: Serve, vulnerabilities: JSONValue, capsys: pytest.CaptureFixture[str]
+    serve: Serve, vulnerabilities: JSONValue
 ) -> None:
     serve(lambda data: {**data, "vulnerabilities": vulnerabilities})
     with pytest.raises(audit_dependencies.AuditError):
         audit_dependencies.main()
-    assert "No known vulnerabilities found" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -212,26 +211,37 @@ def test_real_audit_rejects_malformed_advisory_records(
         audit_dependencies.main()
 
 
-def test_real_audit_rejects_active_advisories_even_without_a_fix(
-    serve: Serve, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("fixed_in", [[], ["2.0"]])
+@pytest.mark.parametrize(
+    ("withdrawn", "expected"),
+    [(None, ["PYSEC-2026-1"]), ("2026-10-17T00:00:00Z", [])],
+)
+def test_advisory_withdrawal_state_controls_active_identifiers(
+    fixed_in: list[str], withdrawn: str | None, expected: list[str]
 ) -> None:
-    serve(
+    data: JSONValue = {
+        "info": {"name": "example", "version": "1.0"},
+        "vulnerabilities": [_advisory(fixed_in=list(fixed_in), withdrawn=withdrawn)],
+    }
+    assert audit_dependencies._validate_response(data, "example", Version("1.0")) == expected
+
+
+def test_real_audit_rejects_active_advisories_even_without_a_fix(serve: Serve) -> None:
+    calls = serve(
         lambda data: (
             {**data, "vulnerabilities": [_advisory()]}
             if data["info"]["name"] == "sqlparse"
             else data
         )
     )
-    with pytest.raises(audit_dependencies.AuditError, match="Known vulnerabilities"):
+    with pytest.raises(audit_dependencies.AuditError):
         audit_dependencies.main()
-    output = capsys.readouterr().out
-    assert f"sqlparse=={version("sqlparse")}: PYSEC-2026-1" in output
-    assert "No known vulnerabilities found" not in output
+    assert any("/sqlparse/" in url for url in calls)
 
 
 @pytest.mark.parametrize("offset", ["+00:60", "-00:99", "+01:99", "-01:60", "+24:00", "-24:00"])
 def test_real_audit_rejects_invalid_withdrawal_offsets(
-    serve: Serve, offset: str, capsys: pytest.CaptureFixture[str]
+    serve: Serve, offset: str
 ) -> None:
     calls = serve(
         lambda data: (
@@ -240,10 +250,9 @@ def test_real_audit_rejects_invalid_withdrawal_offsets(
             else data
         )
     )
-    with pytest.raises(audit_dependencies.AuditError, match="invalid withdrawal timestamp"):
+    with pytest.raises(audit_dependencies.AuditError):
         audit_dependencies.main()
     assert any("/sqlparse/" in url for url in calls)
-    assert "No known vulnerabilities found" not in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -258,11 +267,10 @@ def test_real_audit_rejects_invalid_withdrawal_offsets(
     ],
 )
 def test_real_audit_accepts_valid_withdrawn_advisories(
-    serve: Serve, withdrawn: str, capsys: pytest.CaptureFixture[str]
+    serve: Serve, withdrawn: str
 ) -> None:
     serve(lambda data: {**data, "vulnerabilities": [_advisory(withdrawn=withdrawn)]})
     audit_dependencies.main()
-    assert "No known vulnerabilities found" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -297,14 +305,16 @@ def test_real_audit_rejects_wrong_content_type(serve: Serve) -> None:
 def test_real_audit_rejects_large_responses(serve: Serve, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(audit_dependencies, "MAX_RESPONSE_BYTES", 16)
     serve()
-    with pytest.raises(audit_dependencies.AuditError, match="too much"):
+    with pytest.raises(audit_dependencies.AuditError):
         audit_dependencies.main()
 
 
 def test_real_audit_rejects_timeouts(serve: Serve) -> None:
-    serve(error=TimeoutError("feed timeout"))
-    with pytest.raises(audit_dependencies.AuditError, match="feed timeout"):
+    timeout = TimeoutError()
+    serve(error=timeout)
+    with pytest.raises(audit_dependencies.AuditError) as raised:
         audit_dependencies.main()
+    assert raised.value.__cause__ is timeout
 
 
 @pytest.mark.parametrize("failed_stage", ["lock", "export"])

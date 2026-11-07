@@ -56,6 +56,24 @@ def test_publication_requires_successful_local_release_verification() -> None:
     assert upload["permissions"] == {"contents": "read", "id-token": "write"}
 
 
+def test_draft_requires_successful_local_release_verification() -> None:
+    draft = workflow("create-draft-release.yml")
+    assert draft["on"] == {"push": {"tags": ["v*.*.*"]}}
+    assert draft["permissions"] == {"contents": "read"}
+    gate = _jobs(draft)["verify-release"]
+    assert gate["uses"] == "./.github/workflows/verify-release.yml"
+    create = _jobs(draft)["draft-release"]
+    assert create["needs"] == "verify-release"
+    assert create["permissions"] == {"contents": "write"}
+    for job in (gate, create):
+        assert "if" not in job
+        assert "continue-on-error" not in job
+    steps = _steps(create)
+    assert _mapping(steps[0]["with"])["ref"] == "${{ github.sha }}"
+    assert _string(steps[-1]["uses"]).startswith("btfranklin/release-notes-scribe@")
+    assert all("if" not in step and "continue-on-error" not in step for step in steps)
+
+
 def test_release_verification_checks_all_platforms_and_mvcc_modes_at_the_event_commit() -> None:
     verify = workflow("verify-release.yml")
     assert "workflow_call" in _mapping(verify["on"])

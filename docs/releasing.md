@@ -6,8 +6,8 @@
 3. The tag verifies the backend on macOS, Linux, and Windows, then builds and
    clean-installs the exact tagged artifacts. Each platform runs the MVCC
    application checks with both database types.
-4. The same tag creates a GitHub draft release. Review its notes and publish it
-   after verification completes.
+4. The draft-release workflow requires the same reusable verification to succeed
+   before creating a GitHub draft release. Review its notes and publish it.
 5. Publishing the GitHub Release starts the same verification workflow again
    for the release commit. PyPI Trusted Publishing waits for that run to pass.
 
